@@ -1,0 +1,78 @@
+# ===================
+# Go
+# ===================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# ===================
+# Frontend (Node/React)
+# ===================
+# Dependencies
+frontend/node_modules/
+node_modules/
+
+# Build outputs
+frontend/dist/
+frontend/dist-ssr/
+dist/
+
+# Log files (but not the /logs directory containing components)
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local env files
+*.local
+.env
+.env.local
+.env.*.local
+
+# ===================
+# IDE / Editors
+# ===================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ===================
+# OS
+# ===================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+
+# ===================
+# Testing / Coverage
+# ===================
+coverage/
+*.lcov
+.nyc_output/
+
+# ===================
+# Misc
+# ===================
+*.local
+*.tmp
+*.temp
+.cache/
