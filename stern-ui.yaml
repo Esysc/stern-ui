@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: stern-ui
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: stern-ui
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: stern-ui
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: stern-ui
+subjects:
+- kind: ServiceAccount
+  name: stern-ui
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stern-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stern-ui
+  template:
+    metadata:
+      labels:
+        app: stern-ui
+    spec:
+      serviceAccountName: stern-ui
+      containers:
+      - name: stern-ui
+        image: stern-ui:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stern-ui
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: stern-ui
+  type: ClusterIP
