@@ -10,8 +10,12 @@ export function LogViewer({
   autoScroll = true,
   fontSize = 14,
   isFullscreen = false,
+  showLineNumbers = true,
+  wrapText = false,
   onToggleFullscreen,
-  onFontSizeChange
+  onFontSizeChange,
+  onToggleLineNumbers,
+  onToggleWrap
 }) {
   const logEndRef = useRef(null);
   const containerRef = useRef(null);
@@ -42,8 +46,12 @@ export function LogViewer({
       autoScroll: PropTypes.bool,
       fontSize: PropTypes.number,
       isFullscreen: PropTypes.bool,
+      showLineNumbers: PropTypes.bool,
+      wrapText: PropTypes.bool,
       onToggleFullscreen: PropTypes.func,
-      onFontSizeChange: PropTypes.func
+      onFontSizeChange: PropTypes.func,
+      onToggleLineNumbers: PropTypes.func,
+      onToggleWrap: PropTypes.func
     };
   }, [logs, autoScroll]);
 
@@ -79,6 +87,32 @@ export function LogViewer({
             A+
           </button>
         </div>
+
+        {/* Line Numbers Toggle */}
+        <button
+          onClick={onToggleLineNumbers}
+          className={`px-3 py-1 rounded border transition-colors ${
+            showLineNumbers
+              ? 'bg-blue-600 border-blue-500 text-white'
+              : 'bg-gray-900/90 border-gray-700 text-gray-400 hover:text-white'
+          }`}
+          title={showLineNumbers ? 'Hide line numbers' : 'Show line numbers'}
+        >
+          #
+        </button>
+
+        {/* Text Wrap Toggle */}
+        <button
+          onClick={onToggleWrap}
+          className={`px-3 py-1 rounded border transition-colors ${
+            wrapText
+              ? 'bg-blue-600 border-blue-500 text-white'
+              : 'bg-gray-900/90 border-gray-700 text-gray-400 hover:text-white'
+          }`}
+          title={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+        >
+          ↩️
+        </button>
 
         {/* Fullscreen Toggle */}
         <button
@@ -120,20 +154,27 @@ export function LogViewer({
           </div>
         ) : (
           logs.map((log, idx) => (
-            <div key={`${log.pod}-${idx}-${log.message || log.text}`} className="flex gap-2 hover:bg-gray-900/50">
-              <span className="text-gray-600 select-none">{idx + 1}</span>
+            <div
+              key={`${log.pod}-${idx}-${log.message || log.text}`}
+              className={`flex gap-2 hover:bg-gray-900/50 ${wrapText ? '' : 'whitespace-nowrap'}`}
+            >
+              {showLineNumbers && (
+                <span className="text-gray-600 select-none shrink-0 text-right" style={{ minWidth: '3em' }}>
+                  {idx + 1}
+                </span>
+              )}
               <span
-                className="font-semibold select-none"
+                className="font-semibold select-none shrink-0"
                 style={{ color: podColorMap[log.pod] || '#888' }}
               >
                 [{log.pod}]
               </span>
               {log.level && (
-                <span className={`font-semibold ${getLevelColor(log.level)}`}>
+                <span className={`font-semibold shrink-0 ${getLevelColor(log.level)}`}>
                   {log.level.toUpperCase()}
                 </span>
               )}
-              <span className="flex-1 text-gray-300">
+              <span className={`flex-1 text-gray-300 ${wrapText ? 'break-words' : ''}`}>
                 {log.message || log.text || ''}
               </span>
             </div>

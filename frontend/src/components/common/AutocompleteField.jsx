@@ -8,6 +8,7 @@ export function AutocompleteField({
   label,
   value,
   onChange,
+  onBlur,
   placeholder,
   suggestions = [],
   disabled,
@@ -70,7 +71,10 @@ export function AutocompleteField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => setShowSuggestions(true)}
-          onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+          onBlur={(e) => {
+            setTimeout(() => setShowSuggestions(false), 150);
+            if (onBlur) onBlur(e);
+          }}
           placeholder={placeholder}
           disabled={disabled}
           autoComplete="off"
@@ -113,6 +117,7 @@ AutocompleteField.propTypes = {
   label: PropTypes.string.isRequired,
   value: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
+  onBlur: PropTypes.func,
   placeholder: PropTypes.string,
   suggestions: PropTypes.arrayOf(PropTypes.string),
   disabled: PropTypes.bool,

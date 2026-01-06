@@ -224,6 +224,44 @@ func compileRegexList(filterStr string) ([]*regexp.Regexp, error) {
 	return regexes, nil
 }
 
+func extractContainerName(input string) string {
+	// Extract container name from "pod/container" format
+	if strings.Contains(input, "/") {
+		parts := strings.Split(input, "/")
+		return parts[len(parts)-1]
+	}
+	return input
+}
+
+func compileContainerRegexList(filterStr string) ([]*regexp.Regexp, error) {
+	// Like compileRegexList but extracts container names from "pod/container" format
+	var regexes []*regexp.Regexp
+	if filterStr == "" {
+		return regexes, nil
+	}
+
+	for _, filter := range strings.Split(filterStr, ",") {
+		if filter = strings.TrimSpace(filter); filter != "" {
+			// Extract container name if in "pod/container" format
+			containerName := extractContainerName(filter)
+
+			// Check if it's already a regex pattern (contains regex special chars)
+			// If not, make it an exact match by escaping and anchoring
+			pattern := containerName
+			if !strings.ContainsAny(pattern, ".*+?[]{}()^$|\\") {
+				pattern = "^" + regexp.QuoteMeta(pattern) + "$"
+			}
+
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				return nil, err
+			}
+			regexes = append(regexes, re)
+		}
+	}
+	return regexes, nil
+}
+
 func parseRegexFilters(params streamParams) (*regexp.Regexp, *regexp.Regexp, []*regexp.Regexp, []*regexp.Regexp, []*regexp.Regexp, []*regexp.Regexp, []*regexp.Regexp, error) {
 	queryRegex, err := regexp.Compile(params.query)
 	if err != nil {
@@ -232,7 +270,17 @@ func parseRegexFilters(params streamParams) (*regexp.Regexp, *regexp.Regexp, []*
 
 	containerRegex := regexp.MustCompile(".*")
 	if params.container != "" {
-		containerRegex, err = regexp.Compile(params.container)
+		// Extract container name from "pod/container" format if needed
+		containerName := extractContainerName(params.container)
+
+		// Check if it's already a regex pattern (contains regex special chars)
+		// If not, make it an exact match by escaping and anchoring
+		pattern := containerName
+		if !strings.ContainsAny(pattern, ".*+?[]{}()^$|\\") {
+			pattern = "^" + regexp.QuoteMeta(pattern) + "$"
+		}
+
+		containerRegex, err = regexp.Compile(pattern)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid container regex: %w", err)
 		}
@@ -253,7 +301,7 @@ func parseRegexFilters(params streamParams) (*regexp.Regexp, *regexp.Regexp, []*
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid highlight filter: %w", err)
 	}
 
-	excludeContainerRegexes, err := compileRegexList(params.excludeContainer)
+	excludeContainerRegexes, err := compileContainerRegexList(params.excludeContainer)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid exclude container: %w", err)
 	}
