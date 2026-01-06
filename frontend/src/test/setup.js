@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom';
 
 // Mock scrollIntoView
-window.HTMLElement.prototype.scrollIntoView = function() {};
+globalThis.HTMLElement.prototype.scrollIntoView = function() {};
 
 // Mock localStorage with a fresh store for each test
 const createLocalStorageMock = () => {
@@ -18,7 +18,7 @@ const createLocalStorageMock = () => {
 
 const localStorageMock = createLocalStorageMock();
 
-Object.defineProperty(window, 'localStorage', {
+Object.defineProperty(globalThis, 'localStorage', {
   value: localStorageMock,
   writable: true,
   configurable: true

@@ -4,6 +4,65 @@ import { detectLogLevel } from '../utils/logUtils';
 import { MAX_LOGS, MAX_BUFFER } from '../constants';
 
 /**
+ * Build WebSocket URL parameters from config
+ */
+function buildWsParams(config) {
+  const params = new URLSearchParams();
+  params.set('query', config.query || '.');
+  if (config.namespace) params.set('namespace', config.namespace);
+  if (config.selector) params.set('selector', config.selector);
+  if (config.since) params.set('since', config.since);
+  if (config.container) params.set('container', config.container);
+  if (config.excludeContainer) params.set('excludeContainer', config.excludeContainer);
+  if (config.excludePod) params.set('excludePod', config.excludePod);
+  if (config.containerState && config.containerState !== 'all') {
+    params.set('containerState', config.containerState);
+  }
+  if (config.include) params.set('include', config.include);
+  if (config.exclude) params.set('exclude', config.exclude);
+  if (config.highlight) params.set('highlight', config.highlight);
+  if (config.tail) params.set('tail', config.tail);
+  if (config.node) params.set('node', config.node);
+  if (config.allNamespaces) params.set('allNamespaces', 'true');
+  if (!config.initContainers) params.set('initContainers', 'false');
+  if (!config.ephemeralContainers) params.set('ephemeralContainers', 'false');
+  if (config.timestamps) params.set('timestamps', config.timestamps);
+  if (config.noFollow) params.set('noFollow', 'true');
+  if (config.context) params.set('context', config.context);
+  if (config.maxLogRequests) params.set('maxLogRequests', config.maxLogRequests);
+  return params;
+}
+
+/**
+ * Parse log line into log entry
+ */
+function parseLogLine(line) {
+  return {
+    timestamp: formatTimestamp(line.timestamp),
+    pod: line.podName,
+    container: line.containerName,
+    namespace: line.namespace,
+    node: line.nodeName,
+    message: line.message,
+    labels: line.labels,
+    level: detectLogLevel(line.message)
+  };
+}
+
+/**
+ * Create fallback log entry for parse errors
+ */
+function createFallbackLogEntry(data) {
+  return {
+    timestamp: formatTimestamp(),
+    pod: 'system',
+    container: 'parser',
+    message: data,
+    level: 'unknown'
+  };
+}
+
+/**
  * Custom hook for managing WebSocket connection to stern backend
  */
 export function useWebSocket() {
@@ -19,36 +78,34 @@ export function useWebSocket() {
     isPausedRef.current = isPaused;
   }, [isPaused]);
 
+  const handleLogMessage = useCallback((event) => {
+    try {
+      const line = JSON.parse(event.data);
+      const logEntry = parseLogLine(line);
+
+      if (isPausedRef.current) {
+        pauseBufferRef.current.push(logEntry);
+        if (pauseBufferRef.current.length > MAX_BUFFER) {
+          pauseBufferRef.current = pauseBufferRef.current.slice(-MAX_BUFFER);
+        }
+      } else {
+        setLogs(prev => [...prev, logEntry].slice(-MAX_LOGS));
+      }
+    } catch {
+      const logEntry = createFallbackLogEntry(event.data);
+      if (!isPausedRef.current) {
+        setLogs(prev => [...prev.slice(-(MAX_LOGS - 1)), logEntry]);
+      }
+    }
+  }, []);
+
   const connect = useCallback((config) => {
     if (ws) ws.close();
     pauseBufferRef.current = [];
     setIsPaused(false);
     isPausedRef.current = false;
 
-    const params = new URLSearchParams();
-    params.set('query', config.query || '.');
-    if (config.namespace) params.set('namespace', config.namespace);
-    if (config.selector) params.set('selector', config.selector);
-    if (config.since) params.set('since', config.since);
-    if (config.container) params.set('container', config.container);
-    if (config.excludeContainer) params.set('excludeContainer', config.excludeContainer);
-    if (config.excludePod) params.set('excludePod', config.excludePod);
-    if (config.containerState && config.containerState !== 'all') {
-      params.set('containerState', config.containerState);
-    }
-    if (config.include) params.set('include', config.include);
-    if (config.exclude) params.set('exclude', config.exclude);
-    if (config.highlight) params.set('highlight', config.highlight);
-    if (config.tail) params.set('tail', config.tail);
-    if (config.node) params.set('node', config.node);
-    if (config.allNamespaces) params.set('allNamespaces', 'true');
-    if (!config.initContainers) params.set('initContainers', 'false');
-    if (!config.ephemeralContainers) params.set('ephemeralContainers', 'false');
-    if (config.timestamps) params.set('timestamps', config.timestamps);
-    if (config.noFollow) params.set('noFollow', 'true');
-    if (config.context) params.set('context', config.context);
-    if (config.maxLogRequests) params.set('maxLogRequests', config.maxLogRequests);
-
+    const params = buildWsParams(config);
     const wsUrl = `${getWsProtocol()}//${getWsHost()}/ws/logs?${params.toString()}`;
     const newWs = new WebSocket(wsUrl);
 
@@ -57,46 +114,11 @@ export function useWebSocket() {
       setLogs([]);
     };
 
-    newWs.onmessage = (event) => {
-      try {
-        const line = JSON.parse(event.data);
-        const logEntry = {
-          timestamp: formatTimestamp(line.timestamp),
-          pod: line.podName,
-          container: line.containerName,
-          namespace: line.namespace,
-          node: line.nodeName,
-          message: line.message,
-          labels: line.labels,
-          level: detectLogLevel(line.message)
-        };
-
-        if (isPausedRef.current) {
-          pauseBufferRef.current.push(logEntry);
-          if (pauseBufferRef.current.length > MAX_BUFFER) {
-            pauseBufferRef.current = pauseBufferRef.current.slice(-MAX_BUFFER);
-          }
-        } else {
-          setLogs(prev => [...prev, logEntry].slice(-MAX_LOGS));
-        }
-      } catch {
-        const logEntry = {
-          timestamp: formatTimestamp(),
-          pod: 'system',
-          container: 'parser',
-          message: event.data,
-          level: 'unknown'
-        };
-        if (!isPausedRef.current) {
-          setLogs(prev => [...prev.slice(-(MAX_LOGS - 1)), logEntry]);
-        }
-      }
-    };
-
+    newWs.onmessage = handleLogMessage;
     newWs.onclose = () => setIsConnected(false);
     newWs.onerror = () => setIsConnected(false);
     setWs(newWs);
-  }, [ws]);
+  }, [ws, handleLogMessage]);
 
   const disconnect = useCallback(() => {
     ws?.close();

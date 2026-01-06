@@ -14,7 +14,7 @@ export function hashString(str) {
  * Get the API base URL (handles dev vs prod)
  */
 export function getApiBase() {
-  const host = window.location.host;
+  const host = globalThis.location.host;
   return host.includes('localhost:5173') ? 'http://localhost:8080' : '';
 }
 
@@ -22,7 +22,7 @@ export function getApiBase() {
  * Get WebSocket host (handles dev vs prod)
  */
 export function getWsHost() {
-  const host = window.location.host;
+  const host = globalThis.location.host;
   return host.includes('localhost:5173') ? 'localhost:8080' : host;
 }
 
@@ -30,7 +30,7 @@ export function getWsHost() {
  * Get WebSocket protocol based on page protocol
  */
 export function getWsProtocol() {
-  return window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return globalThis.location.protocol === 'https:' ? 'wss:' : 'ws:';
 }
 
 /**

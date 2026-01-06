@@ -5,14 +5,14 @@ import { loadGlobalSettings, saveGlobalSettings } from './utils/storage';
 function App() {
   // Check if we're in detached mode
   const isDetached = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(globalThis.location.search);
     return params.has('detached');
   }, []);
 
   const [streams, setStreams] = useState(() => {
     if (isDetached) {
       // Load config from URL params
-      const params = new URLSearchParams(window.location.search);
+      const params = new URLSearchParams(globalThis.location.search);
       const configStr = params.get('config');
       const name = params.get('name') || 'Detached Stream';
       const config = configStr ? JSON.parse(decodeURIComponent(configStr)) : {};
@@ -61,8 +61,8 @@ function App() {
     params.set('config', encodeURIComponent(JSON.stringify(config)));
 
     // Open in new window
-    const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
-    window.open(url, '_blank', 'width=1200,height=800');
+    const url = `${globalThis.location.origin}${globalThis.location.pathname}?${params.toString()}`;
+    globalThis.open(url, '_blank', 'width=1200,height=800');
   };
 
   return (

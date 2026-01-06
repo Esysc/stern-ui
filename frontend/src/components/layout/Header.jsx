@@ -1,3 +1,5 @@
+import PropTypes from 'prop-types';
+
 /**
  * Application header with title and global settings
  */
@@ -14,7 +16,7 @@ export function Header({ persistSettings, onPersistSettingsChange }) {
             checked={persistSettings}
             onChange={(e) => onPersistSettingsChange(e.target.checked)}
             className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500"
-          />
+          />{' '}
           Persist settings
         </label>
         <a
@@ -29,3 +31,8 @@ export function Header({ persistSettings, onPersistSettingsChange }) {
     </div>
   );
 }
+
+Header.propTypes = {
+  persistSettings: PropTypes.bool.isRequired,
+  onPersistSettingsChange: PropTypes.func.isRequired,
+};
