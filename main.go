@@ -517,13 +517,14 @@ func getPods(c *gin.Context) {
 	c.JSON(http.StatusOK, pods)
 }
 
-// getContainers returns list of container names in a namespace
+// getContainers returns list of container names in pod/container format
 func getContainers(c *gin.Context) {
 	namespace := c.Query("namespace")
 	ctx := c.Query("context")
 	allNamespaces := c.Query("allNamespaces")
 
-	args := []string{"get", "pods", "-o", "jsonpath={.items[*].spec.containers[*].name}"}
+	// Get pods with their containers in format: podName containerName1 containerName2...
+	args := []string{"get", "pods", "-o", "jsonpath={range .items[*]}{.metadata.name}{\" \"}{range .spec.containers[*]}{.name}{\" \"}{end}{\"\\n\"}{end}"}
 	if ctx != "" {
 		args = append([]string{"--context", ctx}, args...)
 	}
@@ -540,17 +541,25 @@ func getContainers(c *gin.Context) {
 		return
 	}
 
-	containers := strings.Fields(string(output))
-	// Remove duplicates
-	containerMap := make(map[string]bool)
-	for _, container := range containers {
-		containerMap[container] = true
+	// Parse output and create pod/container pairs
+	var containers []string
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		podName := fields[0]
+		// Each subsequent field is a container name
+		for _, containerName := range fields[1:] {
+			containers = append(containers, fmt.Sprintf("%s/%s", podName, containerName))
+		}
 	}
-	unique := make([]string, 0, len(containerMap))
-	for container := range containerMap {
-		unique = append(unique, container)
-	}
-	c.JSON(http.StatusOK, unique)
+
+	c.JSON(http.StatusOK, containers)
 }
 
 // getContexts returns list of kubernetes contexts
