@@ -185,16 +185,12 @@ graph TB
     class UI frontend
     class WebServer,SternLib backend
     class K8s k8s
-- Stern is used as a **Go library** (not CLI), imported from `github.com/stern/stern/stern`
-- Single binary deployment with no external dependencies except kubectl config
 ```
 
-### API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/ws/logs` | WebSocket | Stream logs with query parameters |
-| `/api/namespaces` | GET | List available namespaces |
+**Key Points:**
+- Frontend is **embedded** in Go binary via `//go:embed`
+- Stern is used as a **Go library** (not CLI), imported from `github.com/stern/stern/stern`
+- Single binary deployment with no external dependencies except kubectl config
 | `/api/pods` | GET | List pods (supports `?namespace=` and `?context=`) |
 | `/api/containers` | GET | List container names (supports `?namespace=` and `?context=`) |
 | `/api/contexts` | GET | List available kubectl contexts |
