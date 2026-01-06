@@ -9,6 +9,7 @@ import { CONTAINER_STATE_OPTIONS, TIMESTAMP_OPTIONS } from '../../constants';
 const StreamConfigComponent = ({
   config,
   onChange,
+  onConfigBlur,
   autocomplete
 }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -25,6 +26,7 @@ const StreamConfigComponent = ({
           label="Namespace"
           value={config.namespace}
           onChange={(v) => updateConfig('namespace', v)}
+          onBlur={onConfigBlur}
           placeholder="default"
           suggestions={autocomplete.namespaces}
           disabled={config.allNamespaces}
@@ -33,12 +35,14 @@ const StreamConfigComponent = ({
           label="Selector (label)"
           value={config.selector}
           onChange={(e) => updateConfig('selector', e.target.value)}
+          onBlur={onConfigBlur}
           placeholder="app=myapp or app=web,tier=frontend"
         />
         <AutocompleteField
           label="Query (pod name/regex)"
           value={config.query}
           onChange={(v) => updateConfig('query', v)}
+          onBlur={onConfigBlur}
           placeholder=".*nginx.* or deployment/nginx or ."
           suggestions={autocomplete.pods}
         />
@@ -46,6 +50,7 @@ const StreamConfigComponent = ({
           label="Since"
           value={config.since}
           onChange={(e) => updateConfig('since', e.target.value)}
+          onBlur={onConfigBlur}
           placeholder="5m, 1h, 24h"
         />
       </div>
@@ -53,27 +58,18 @@ const StreamConfigComponent = ({
       {/* Container Filtering */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <AutocompleteField
-          label="Container name (regex)"
+          label="Container name"
           value={config.container}
-          onChange={(v) => {
-            // Extract container name from "pod/container" format
-            const containerName = v.includes('/') ? v.split('/').pop() : v;
-            updateConfig('container', containerName);
-          }}
+          onChange={(v) => updateConfig('container', v)}
+          onBlur={onConfigBlur}
           placeholder="nginx, app, worker, etc."
           suggestions={autocomplete.containers}
         />
         <AutocompleteField
           label="Exclude Containers"
           value={config.excludeContainer}
-          onChange={(v) => {
-            // Extract container names from "pod/container" format
-            const containerNames = v.split(',').map(item => {
-              const trimmed = item.trim();
-              return trimmed.includes('/') ? trimmed.split('/').pop() : trimmed;
-            }).join(',');
-            updateConfig('excludeContainer', containerNames);
-          }}
+          onChange={(v) => updateConfig('excludeContainer', v)}
+          onBlur={onConfigBlur}
           placeholder="istio-proxy,envoy"
           suggestions={autocomplete.containers}
           multiple={true}
@@ -82,6 +78,7 @@ const StreamConfigComponent = ({
           label="Exclude Pods"
           value={config.excludePod}
           onChange={(v) => updateConfig('excludePod', v)}
+          onBlur={onConfigBlur}
           placeholder="kube-proxy.*"
           suggestions={autocomplete.pods}
           multiple={true}
@@ -90,6 +87,7 @@ const StreamConfigComponent = ({
           label="Container State"
           value={config.containerState}
           onChange={(e) => updateConfig('containerState', e.target.value)}
+          onBlur={onConfigBlur}
           options={CONTAINER_STATE_OPTIONS}
         />
       </div>
@@ -100,18 +98,21 @@ const StreamConfigComponent = ({
           label="Include (regex, highlighted)"
           value={config.include}
           onChange={(e) => updateConfig('include', e.target.value)}
+          onBlur={onConfigBlur}
           placeholder="error,warn"
         />
         <InputField
           label="Exclude (regex)"
           value={config.exclude}
           onChange={(e) => updateConfig('exclude', e.target.value)}
+          onBlur={onConfigBlur}
           placeholder="health,ping"
         />
         <InputField
           label="Highlight (regex)"
           value={config.highlight}
           onChange={(e) => updateConfig('highlight', e.target.value)}
+          onBlur={onConfigBlur}
           placeholder="ERROR,WARN"
         />
       </div>
@@ -130,12 +131,14 @@ const StreamConfigComponent = ({
             label="Tail Lines"
             value={config.tail}
             onChange={(e) => updateConfig('tail', e.target.value)}
+            onBlur={onConfigBlur}
             placeholder="-1 (all), 100"
           />
           <AutocompleteField
             label="Node"
             value={config.node}
             onChange={(v) => updateConfig('node', v)}
+            onBlur={onConfigBlur}
             placeholder="node-name"
             suggestions={autocomplete.nodes}
           />
@@ -143,6 +146,7 @@ const StreamConfigComponent = ({
             label="Context"
             value={config.context}
             onChange={(v) => updateConfig('context', v)}
+            onBlur={onConfigBlur}
             placeholder="minikube"
             suggestions={autocomplete.contexts}
           />
@@ -150,12 +154,14 @@ const StreamConfigComponent = ({
             label="Max Log Requests"
             value={config.maxLogRequests}
             onChange={(e) => updateConfig('maxLogRequests', e.target.value)}
+            onBlur={onConfigBlur}
             placeholder="50"
           />
           <SelectField
             label="Timestamps"
             value={config.timestamps}
             onChange={(e) => updateConfig('timestamps', e.target.value)}
+            onBlur={onConfigBlur}
             options={TIMESTAMP_OPTIONS}
           />
           <CheckboxField
@@ -208,6 +214,7 @@ StreamConfigComponent.propTypes = {
     noFollow: PropTypes.bool,
   }).isRequired,
   onChange: PropTypes.func.isRequired,
+  onConfigBlur: PropTypes.func,
   autocomplete: PropTypes.shape({
     namespaces: PropTypes.arrayOf(PropTypes.string),
     pods: PropTypes.arrayOf(PropTypes.string),

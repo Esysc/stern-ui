@@ -8,7 +8,8 @@ export function StreamTabs({
   activeStreamId,
   onSelectStream,
   onAddStream,
-  onRemoveStream
+  onRemoveStream,
+  onDetachStream
 }) {
   return (
     <div className="bg-gray-850 border-b border-gray-700 px-6 flex items-center">
@@ -21,6 +22,7 @@ export function StreamTabs({
             canRemove={streams.length > 1}
             onSelect={() => onSelectStream(stream.id)}
             onRemove={() => onRemoveStream(stream.id)}
+            onDetach={() => onDetachStream(stream.id)}
           />
         ))}
       </div>
@@ -42,13 +44,19 @@ StreamTabs.propTypes = {
   activeStreamId: PropTypes.string.isRequired,
   onSelectStream: PropTypes.func.isRequired,
   onAddStream: PropTypes.func.isRequired,
-  onRemoveStream: PropTypes.func.isRequired
+  onRemoveStream: PropTypes.func.isRequired,
+  onDetachStream: PropTypes.func.isRequired
 };
 
-function StreamTab({ stream, isActive, canRemove, onSelect, onRemove }) {
+function StreamTab({ stream, isActive, canRemove, onSelect, onRemove, onDetach }) {
   const handleRemove = (e) => {
     e.stopPropagation();
     onRemove();
+  };
+
+  const handleDetach = (e) => {
+    e.stopPropagation();
+    onDetach();
   };
 
   const handleKeyDown = (e) => {
@@ -72,6 +80,13 @@ function StreamTab({ stream, isActive, canRemove, onSelect, onRemove }) {
       onKeyDown={handleKeyDown}
     >
       <span>{stream.name}</span>
+      <button
+        onClick={handleDetach}
+        className="text-gray-500 hover:text-blue-400 text-xs"
+        title="Detach to new window"
+      >
+        ⧉
+      </button>
       {canRemove && (
         <button
           onClick={handleRemove}
@@ -92,5 +107,6 @@ StreamTab.propTypes = {
   isActive: PropTypes.bool.isRequired,
   canRemove: PropTypes.bool.isRequired,
   onSelect: PropTypes.func.isRequired,
-  onRemove: PropTypes.func.isRequired
+  onRemove: PropTypes.func.isRequired,
+  onDetach: PropTypes.func.isRequired
 };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { StreamConfig } from './StreamConfig';
 import { StreamActions } from './StreamActions';
@@ -21,9 +21,13 @@ import { DEFAULT_CONFIG } from '../../constants';
 /**
  * Main stream panel containing config, controls, and log viewer
  */
-export function StreamPanel({ streamId, persistSettings }) {
+export function StreamPanel({ streamId, persistSettings, initialConfig }) {
   // Load config from storage or use default
   const [config, setConfig] = useState(() => {
+    // Priority: initialConfig (for detached windows) > storage > default
+    if (initialConfig) {
+      return { ...DEFAULT_CONFIG, ...initialConfig };
+    }
     if (persistSettings) {
       return loadConfig(streamId);
     }
@@ -36,6 +40,8 @@ export function StreamPanel({ streamId, persistSettings }) {
   const [showHelp, setShowHelp] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fontSize, setFontSize] = useState(14);
+  const [showLineNumbers, setShowLineNumbers] = useState(true);
+  const [wrapText, setWrapText] = useState(false);
 
   // WebSocket connection
   const {
@@ -62,23 +68,6 @@ export function StreamPanel({ streamId, persistSettings }) {
       saveConfig(streamId, config);
     }
   }, [config, persistSettings, streamId]);
-
-  // Track if we should auto-reconnect (don't reconnect on first render)
-  const isFirstRender = useRef(true);
-
-  // Auto-reconnect when config changes while connected
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-
-    if (isConnected) {
-      disconnect();
-      setTimeout(() => connect(config), 100);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config]); // Only watch config changes, not connect/disconnect/isConnected
 
   // Computed values
   const podColorMap = useMemo(() => buildPodColorMap(logs), [logs]);
@@ -108,6 +97,14 @@ export function StreamPanel({ streamId, persistSettings }) {
   const handleConnect = useCallback(() => {
     connect(config);
   }, [connect, config]);
+
+  const handleConfigBlur = useCallback(() => {
+    // Auto-reconnect when field loses focus if already connected
+    if (isConnected) {
+      disconnect();
+      setTimeout(() => connect(config), 100);
+    }
+  }, [isConnected, disconnect, connect, config]);
 
   const handleDownloadText = useCallback(() => {
     const content = formatLogsAsText(filteredLogs);
@@ -150,6 +147,7 @@ export function StreamPanel({ streamId, persistSettings }) {
         <StreamConfig
           config={config}
           onChange={setConfig}
+          onConfigBlur={handleConfigBlur}
           autocomplete={autocomplete}
         />
 
@@ -198,8 +196,12 @@ export function StreamPanel({ streamId, persistSettings }) {
           autoScroll={autoScroll}
           fontSize={fontSize}
           isFullscreen={isFullscreen}
+          showLineNumbers={showLineNumbers}
+          wrapText={wrapText}
           onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
           onFontSizeChange={setFontSize}
+          onToggleLineNumbers={() => setShowLineNumbers(!showLineNumbers)}
+          onToggleWrap={() => setWrapText(!wrapText)}
         />
       </div>
     </div>
@@ -209,7 +211,8 @@ export function StreamPanel({ streamId, persistSettings }) {
 
 StreamPanel.propTypes = {
   streamId: PropTypes.string.isRequired,
-  persistSettings: PropTypes.bool
+  persistSettings: PropTypes.bool,
+  initialConfig: PropTypes.object
 };
 
 StreamPanel.defaultProps = {

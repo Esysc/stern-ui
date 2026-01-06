@@ -1,9 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Header, StreamTabs, StreamPanel } from './components';
 import { loadGlobalSettings, saveGlobalSettings } from './utils/storage';
 
 function App() {
-  const [streams, setStreams] = useState([{ id: 1, name: 'Stream 1' }]);
+  // Check if we're in detached mode
+  const isDetached = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.has('detached');
+  }, []);
+
+  const [streams, setStreams] = useState(() => {
+    if (isDetached) {
+      // Load config from URL params
+      const params = new URLSearchParams(window.location.search);
+      const configStr = params.get('config');
+      const name = params.get('name') || 'Detached Stream';
+      const config = configStr ? JSON.parse(decodeURIComponent(configStr)) : {};
+      return [{ id: 1, name, config }];
+    }
+    return [{ id: 1, name: 'Stream 1' }];
+  });
   const [activeStreamId, setActiveStreamId] = useState(1);
   const [persistSettings, setPersistSettings] = useState(() => {
     return loadGlobalSettings().persistSettings;
@@ -29,6 +45,26 @@ function App() {
     }
   };
 
+  const detachStream = (id) => {
+    const stream = streams.find(s => s.id === id);
+    if (!stream) return;
+
+    // Get current config from localStorage
+    const configKey = `stream-${id}-config`;
+    const configStr = localStorage.getItem(configKey);
+    const config = configStr ? JSON.parse(configStr) : {};
+
+    // Build URL with config
+    const params = new URLSearchParams();
+    params.set('detached', 'true');
+    params.set('name', stream.name);
+    params.set('config', encodeURIComponent(JSON.stringify(config)));
+
+    // Open in new window
+    const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+    window.open(url, '_blank', 'width=1200,height=800');
+  };
+
   return (
     <div className="min-h-screen bg-gray-900 text-white font-mono">
       <Header
@@ -36,13 +72,16 @@ function App() {
         onPersistSettingsChange={setPersistSettings}
       />
 
-      <StreamTabs
-        streams={streams}
-        activeStreamId={activeStreamId}
-        onSelectStream={setActiveStreamId}
-        onAddStream={addStream}
-        onRemoveStream={removeStream}
-      />
+      {!isDetached && (
+        <StreamTabs
+          streams={streams}
+          activeStreamId={activeStreamId}
+          onSelectStream={setActiveStreamId}
+          onAddStream={addStream}
+          onRemoveStream={removeStream}
+          onDetachStream={detachStream}
+        />
+      )}
 
       {streams
         .filter(stream => stream.id === activeStreamId)
@@ -51,6 +90,7 @@ function App() {
             key={stream.id}
             streamId={stream.id}
             persistSettings={persistSettings}
+            initialConfig={stream.config}
           />
         ))
       }

@@ -80,17 +80,17 @@ const StreamHelpComponent = ({ isVisible, onClose }) => {
 
           <div className="space-y-4">
             <div>
-              <h4 className="font-semibold text-gray-300 mb-1">Container (regex)</h4>
-              <p className="text-gray-400 mb-2">Regular expression to match container names within selected pods.</p>
+              <h4 className="font-semibold text-gray-300 mb-1">Container</h4>
+              <p className="text-gray-400 mb-2">Container name (exact match) or regular expression to match container names within selected pods.</p>
               <div className="bg-gray-900 p-2 rounded space-y-1">
-                <div><code className="text-green-300">.*</code> - All containers (default)</div>
-                <div><code className="text-green-300">app</code> - Only container named "app"</div>
-                <div><code className="text-green-300">nginx</code> - Only container named "nginx"</div>
-                <div><code className="text-green-300">api|worker</code> - Match "api" OR "worker" containers</div>
-                <div><code className="text-green-300">^main$</code> - Exact match for "main" container</div>
+                <div><code className="text-green-300">app</code> - Exact match: only container named "app"</div>
+                <div><code className="text-green-300">nginx</code> - Exact match: only container named "nginx"</div>
+                <div><code className="text-green-300">.*</code> - Regex: all containers</div>
+                <div><code className="text-green-300">api|worker</code> - Regex: match "api" OR "worker" containers</div>
+                <div><code className="text-green-300">.*-sidecar</code> - Regex: containers ending with "-sidecar"</div>
               </div>
               <p className="text-yellow-300 text-xs mt-2">
-                💡 Tip: Use kubectl describe pod to see container names, then filter by those names here.
+                💡 Tip: Plain names like "app" match exactly. Use regex patterns like ".*app.*" to match substrings.
               </p>
             </div>
 
