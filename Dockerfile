@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Build backend with embedded frontend
-FROM golang:1.23-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -16,7 +16,7 @@ COPY --from=frontend-builder /app/dist ./frontend/dist
 RUN go build -o stern-ui main.go
 
 # Final stage - single binary with embedded frontend
-FROM alpine:latest
+FROM alpine:3.19
 RUN apk add --no-cache kubectl ca-certificates
 
 WORKDIR /app
