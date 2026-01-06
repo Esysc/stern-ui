@@ -28,7 +28,7 @@ A modern web interface for [stern](https://github.com/stern/stern), the multi-po
 
 ### Prerequisites
 
-- [Go 1.23+](https://golang.org/dl/)
+- [Go 1.25+](https://golang.org/dl/)
 - [Node.js 20+](https://nodejs.org/)
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) configured with cluster access
 
