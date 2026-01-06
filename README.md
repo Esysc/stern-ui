@@ -3,7 +3,7 @@
 A modern web interface for [stern](https://github.com/stern/stern), the multi-pod and container log tailing tool for Kubernetes.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Go](https://img.shields.io/badge/Go-1.23-00ADD8.svg)
+![Go](https://img.shields.io/badge/Go-1.25-00ADD8.svg)
 ![React](https://img.shields.io/badge/React-19-61DAFB.svg)
 
 ## Features
