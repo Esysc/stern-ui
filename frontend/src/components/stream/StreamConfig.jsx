@@ -55,14 +55,25 @@ const StreamConfigComponent = ({
         <AutocompleteField
           label="Container name (regex)"
           value={config.container}
-          onChange={(v) => updateConfig('container', v)}
+          onChange={(v) => {
+            // Extract container name from "pod/container" format
+            const containerName = v.includes('/') ? v.split('/').pop() : v;
+            updateConfig('container', containerName);
+          }}
           placeholder="nginx, app, worker, etc."
           suggestions={autocomplete.containers}
         />
         <AutocompleteField
           label="Exclude Containers"
           value={config.excludeContainer}
-          onChange={(v) => updateConfig('excludeContainer', v)}
+          onChange={(v) => {
+            // Extract container names from "pod/container" format
+            const containerNames = v.split(',').map(item => {
+              const trimmed = item.trim();
+              return trimmed.includes('/') ? trimmed.split('/').pop() : trimmed;
+            }).join(',');
+            updateConfig('excludeContainer', containerNames);
+          }}
           placeholder="istio-proxy,envoy"
           suggestions={autocomplete.containers}
           multiple={true}

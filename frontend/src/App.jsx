@@ -44,14 +44,16 @@ function App() {
         onRemoveStream={removeStream}
       />
 
-      {streams.map(stream => (
-        <div key={stream.id} className={activeStreamId === stream.id ? '' : 'hidden'}>
+      {streams
+        .filter(stream => stream.id === activeStreamId)
+        .map(stream => (
           <StreamPanel
+            key={stream.id}
             streamId={stream.id}
             persistSettings={persistSettings}
           />
-        </div>
-      ))}
+        ))
+      }
     </div>
   );
 }
