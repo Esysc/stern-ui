@@ -8,10 +8,21 @@ export function LogViewer({
   logs = [],
   podColorMap = {},
   autoScroll = true,
-  onAutoScrollChange
+  fontSize = 14,
+  isFullscreen = false,
+  onToggleFullscreen,
+  onFontSizeChange
 }) {
   const logEndRef = useRef(null);
   const containerRef = useRef(null);
+
+  const scrollToTop = () => {
+    containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollToBottom = () => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   useEffect(() => {
     if (autoScroll && logEndRef.current) {
@@ -29,22 +40,12 @@ export function LogViewer({
       ),
       podColorMap: PropTypes.object,
       autoScroll: PropTypes.bool,
-      onAutoScrollChange: PropTypes.func
+      fontSize: PropTypes.number,
+      isFullscreen: PropTypes.bool,
+      onToggleFullscreen: PropTypes.func,
+      onFontSizeChange: PropTypes.func
     };
   }, [logs, autoScroll]);
-
-  const handleScroll = () => {
-    if (!containerRef.current) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-
-    if (isAtBottom && !autoScroll) {
-      onAutoScrollChange?.(true);
-    } else if (!isAtBottom && autoScroll) {
-      onAutoScrollChange?.(false);
-    }
-  };
 
   const getLevelColor = (level) => {
     const colors = {
@@ -57,10 +58,61 @@ export function LogViewer({
   };
 
   return (
+    <div className="relative flex-1 flex flex-col min-h-0">
+      {/* Floating Controls */}
+      <div className="absolute top-2 right-2 z-10 flex gap-2">
+        {/* Font Size Controls */}
+        <div className="flex gap-1 bg-gray-900/90 border border-gray-700 rounded px-2 py-1">
+          <button
+            onClick={() => onFontSizeChange?.(Math.max(10, fontSize - 2))}
+            className="text-gray-400 hover:text-white px-2"
+            title="Decrease font size"
+          >
+            A-
+          </button>
+          <span className="text-gray-500 px-1">{fontSize}px</span>
+          <button
+            onClick={() => onFontSizeChange?.(Math.min(24, fontSize + 2))}
+            className="text-gray-400 hover:text-white px-2"
+            title="Increase font size"
+          >
+            A+
+          </button>
+        </div>
+
+        {/* Fullscreen Toggle */}
+        <button
+          onClick={onToggleFullscreen}
+          className="px-3 py-1 bg-gray-900/90 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+          title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen'}
+        >
+          {isFullscreen ? '🗗' : '🗖'}
+        </button>
+      </div>
+
+      {/* Jump to Top/Bottom Buttons */}
+      <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
+        <button
+          onClick={scrollToTop}
+          className="px-3 py-2 bg-gray-900/90 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+          title="Jump to top"
+        >
+          ⬆️
+        </button>
+        <button
+          onClick={scrollToBottom}
+          className="px-3 py-2 bg-gray-900/90 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+          title="Jump to bottom"
+        >
+          ⬇️
+        </button>
+      </div>
+
+      {/* Log Content */}
     <div
       ref={containerRef}
-      className="flex-1 overflow-y-auto font-mono text-sm p-4"
-      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto font-mono p-4"
+      style={{ fontSize: `${fontSize}px` }}
     >
         {logs.length === 0 ? (
           <div className="text-gray-500 text-center py-8">
@@ -88,6 +140,7 @@ export function LogViewer({
           ))
         )}
         <div ref={logEndRef} />
+    </div>
     </div>
   );
 }

@@ -34,6 +34,8 @@ export function StreamPanel({ streamId, persistSettings }) {
   const [levelFilter, setLevelFilter] = useState('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fontSize, setFontSize] = useState(14);
 
   // WebSocket connection
   const {
@@ -91,6 +93,17 @@ export function StreamPanel({ streamId, persistSettings }) {
     [logs, levelFilter, searchFilter]
   );
 
+  // Fullscreen mode - handle escape key
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isFullscreen]);
+
   // Handlers
   const handleConnect = useCallback(() => {
     connect(config);
@@ -132,7 +145,8 @@ export function StreamPanel({ streamId, persistSettings }) {
       {/* Help panel */}
       <StreamHelp isVisible={showHelp} onClose={() => setShowHelp(false)} />
 
-      <div className="bg-gray-800 p-6 rounded-lg mb-6 border border-gray-700">
+      {!isFullscreen && (
+        <div className="bg-gray-800 p-6 rounded-lg mb-6 border border-gray-700">
         <StreamConfig
           config={config}
           onChange={setConfig}
@@ -152,17 +166,22 @@ export function StreamPanel({ streamId, persistSettings }) {
           onDownloadText={handleDownloadText}
           onDownloadJson={handleDownloadJson}
         />
-      </div>
+        </div>
+      )}
 
-      <LogFilters
+      {!isFullscreen && (
+        <LogFilters
         searchFilter={searchFilter}
         onSearchChange={setSearchFilter}
         levelFilter={levelFilter}
         onLevelChange={setLevelFilter}
         levelCounts={levelCounts}
-      />
+        />
+      )}
 
-      <div className="bg-black border border-gray-800 rounded-lg flex flex-col h-[calc(100vh-650px)] min-h-[400px]">
+      <div className={`bg-black border border-gray-800 rounded-lg flex flex-col ${
+        isFullscreen ? 'fixed inset-4 z-50 h-auto' : 'h-[calc(100vh-650px)] min-h-[400px]'
+      }`}>
         <LogStatusBar
           isConnected={isConnected}
           isPaused={isPaused}
@@ -177,7 +196,10 @@ export function StreamPanel({ streamId, persistSettings }) {
           podColorMap={podColorMap}
           highlightPatterns={highlightPatterns}
           autoScroll={autoScroll}
-          onAutoScrollChange={setAutoScroll}
+          fontSize={fontSize}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
+          onFontSizeChange={setFontSize}
         />
       </div>
     </div>
