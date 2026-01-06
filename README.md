@@ -160,28 +160,33 @@ The included `stern-ui.yaml` creates:
 
 ## Architecture
 
-```
-┌─────────────────┐     WebSocket      ┌─────────────────┐
-│                 │◄──────────────────►│                 │
-│   React UI      │                    │   Go Backend    │
-│   (Vite/Tailwind)                    │   (Gin)         │
-│                 │     REST API       │                 │
-│                 │◄──────────────────►│                 │
-└─────────────────┘                    └────────┬────────┘
-                                                │
-                                                │ exec
-                                                ▼
-                                       ┌─────────────────┐
-                                       │     stern       │
-                                       │   CLI tool      │
-                                       └────────┬────────┘
-                                                │
-                                                │ kubectl
-                                                ▼
-                                       ┌─────────────────┐
-                                       │   Kubernetes    │
-                                       │    Cluster      │
-                                       └─────────────────┘
+```mermaid
+graph TB
+    subgraph Frontend["Frontend (Embedded)"]
+        UI[React UI<br/>Vite + Tailwind CSS]
+    end
+
+    subgraph Backend["Go Backend (Single Binary)"]
+        WebServer[Gin Web Server<br/>WebSocket + REST]
+        SternLib[Stern Library<br/>v1.33.1 Go Module]
+    end
+
+    K8s[Kubernetes Cluster<br/>via client-go]
+
+    UI <-->|WebSocket<br/>Log Streaming| WebServer
+    UI <-->|REST API<br/>Autocomplete| WebServer
+    WebServer -->|imports & calls| SternLib
+    SternLib -->|kubectl API| K8s
+
+    classDef frontend fill:#61DAFB,stroke:#333,stroke-width:2px,color:#000
+    classDef backend fill:#00ADD8,stroke:#333,stroke-width:2px,color:#fff
+    classDef k8s fill:#326CE5,stroke:#333,stroke-width:2px,color:#fff
+
+    class UI frontend
+    class WebServer,SternLib backend
+    class K8s k8s
+- Stern is used as a **Go library** (not CLI), imported from `github.com/stern/stern/stern`
+- Single binary deployment with no external dependencies except kubectl config
 ```
 
 ### API Endpoints
@@ -191,6 +196,7 @@ The included `stern-ui.yaml` creates:
 | `/ws/logs` | WebSocket | Stream logs with query parameters |
 | `/api/namespaces` | GET | List available namespaces |
 | `/api/pods` | GET | List pods (supports `?namespace=` and `?context=`) |
+| `/api/containers` | GET | List container names (supports `?namespace=` and `?context=`) |
 | `/api/contexts` | GET | List available kubectl contexts |
 | `/api/nodes` | GET | List cluster nodes |
 
@@ -268,10 +274,10 @@ Hooks include:
 ## Tech Stack
 
 ### Backend
-- **Go 1.23** - Backend language
+- **Go 1.25** - Backend language
 - **Gin** - HTTP web framework
 - **Gorilla WebSocket** - WebSocket support
-- **stern** - Kubernetes log tailing (CLI)
+- **stern v1.33.1** - Kubernetes log tailing (Go module)
 
 ### Frontend
 - **React 19** - UI framework
@@ -282,30 +288,13 @@ Hooks include:
 
 ## Troubleshooting
 
-### stern not found
-
-Ensure stern is installed and in your PATH:
-```bash
-stern --version
-```
-
-Install stern:
-```bash
-# macOS
-brew install stern
-
-# Linux
-wget https://github.com/stern/stern/releases/latest/download/stern_linux_amd64.tar.gz
-tar -xzf stern_linux_amd64.tar.gz
-sudo mv stern /usr/local/bin/
-```
-
 ### No logs appearing
 
 1. Check kubectl is configured: `kubectl get pods`
-2. Verify stern works directly: `stern . -n default`
+2. Verify you have access to the cluster and namespace
 3. Check browser console for WebSocket errors
 4. Ensure the namespace has running pods
+5. Check backend logs for authentication or API errors
 
 ### Connection refused
 
