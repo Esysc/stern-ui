@@ -167,6 +167,12 @@ tasks:
       - task: build
       - task: docker:build
 
+  # Release tasks
+  release:
+    desc: Run automated release process (version bump, tag, GitHub release)
+    cmds:
+      - ./scripts/release.sh {{.CLI_ARGS}}
+
   default:
     desc: Show available tasks
     cmds:

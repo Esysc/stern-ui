@@ -52,6 +52,7 @@ task --list
 - `task run` - Build and run the complete application
 - `task docker:build` - Build Docker image
 - `task docker:run` - Run Docker container
+- `task release -- [patch|minor|major] [--yes]` - Automated release process
 
 ### Prerequisites
 
@@ -392,6 +393,10 @@ The backend runs on port 8080 by default. Ensure:
 - No other service is using port 8080
 - Firewall allows the connection
 - When using Docker, port is properly mapped
+
+## Release Management
+
+See [scripts/README.md](scripts/README.md) for release automation documentation.
 
 ## Contributing
 
