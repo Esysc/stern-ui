@@ -1,7 +1,7 @@
 import { useState, memo } from 'react';
 import PropTypes from 'prop-types';
 import { InputField, SelectField, CheckboxField, AutocompleteField } from '../common';
-import { CONTAINER_STATE_OPTIONS, TIMESTAMP_OPTIONS } from '../../constants';
+import { CONTAINER_STATE_OPTIONS, TIMESTAMP_OPTIONS, SINCE_OPTIONS } from '../../constants';
 
 /**
  * Configuration form for a log stream
@@ -10,13 +10,17 @@ const StreamConfigComponent = ({
   config,
   onChange,
   onConfigBlur,
-  autocomplete
+  autocomplete,
+  streamId
 }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const updateConfig = (key, value) => {
     onChange({ ...config, [key]: value });
   };
+
+  // Use streamId as prefix for all field IDs to ensure uniqueness
+  const idPrefix = `stream-${streamId}`;
 
   return (
     <>
@@ -29,7 +33,7 @@ const StreamConfigComponent = ({
           onBlur={onConfigBlur}
           placeholder="default"
           suggestions={autocomplete.namespaces}
-          disabled={config.allNamespaces}
+          idPrefix={idPrefix}
         />
         <InputField
           label="Selector (label)"
@@ -37,6 +41,7 @@ const StreamConfigComponent = ({
           onChange={(e) => updateConfig('selector', e.target.value)}
           onBlur={onConfigBlur}
           placeholder="app=myapp or app=web,tier=frontend"
+          idPrefix={idPrefix}
         />
         <AutocompleteField
           label="Query (pod name/regex)"
@@ -45,13 +50,15 @@ const StreamConfigComponent = ({
           onBlur={onConfigBlur}
           placeholder=".*nginx.* or deployment/nginx or ."
           suggestions={autocomplete.pods}
+          idPrefix={idPrefix}
         />
-        <InputField
+        <SelectField
           label="Since"
           value={config.since}
           onChange={(e) => updateConfig('since', e.target.value)}
           onBlur={onConfigBlur}
-          placeholder="5m, 1h, 24h"
+          options={SINCE_OPTIONS}
+          idPrefix={idPrefix}
         />
       </div>
 
@@ -64,6 +71,7 @@ const StreamConfigComponent = ({
           onBlur={onConfigBlur}
           placeholder="nginx, app, worker, etc."
           suggestions={autocomplete.containers}
+          idPrefix={idPrefix}
         />
         <AutocompleteField
           label="Exclude Containers"
@@ -73,6 +81,7 @@ const StreamConfigComponent = ({
           placeholder="istio-proxy,envoy"
           suggestions={autocomplete.containers}
           multiple={true}
+          idPrefix={idPrefix}
         />
         <AutocompleteField
           label="Exclude Pods"
@@ -82,6 +91,7 @@ const StreamConfigComponent = ({
           placeholder="kube-proxy.*"
           suggestions={autocomplete.pods}
           multiple={true}
+          idPrefix={idPrefix}
         />
         <SelectField
           label="Container State"
@@ -89,6 +99,7 @@ const StreamConfigComponent = ({
           onChange={(e) => updateConfig('containerState', e.target.value)}
           onBlur={onConfigBlur}
           options={CONTAINER_STATE_OPTIONS}
+          idPrefix={idPrefix}
         />
       </div>
 
@@ -100,6 +111,7 @@ const StreamConfigComponent = ({
           onChange={(e) => updateConfig('include', e.target.value)}
           onBlur={onConfigBlur}
           placeholder="error,warn"
+          idPrefix={idPrefix}
         />
         <InputField
           label="Exclude (regex)"
@@ -107,6 +119,7 @@ const StreamConfigComponent = ({
           onChange={(e) => updateConfig('exclude', e.target.value)}
           onBlur={onConfigBlur}
           placeholder="health,ping"
+          idPrefix={idPrefix}
         />
         <InputField
           label="Highlight (regex)"
@@ -114,6 +127,7 @@ const StreamConfigComponent = ({
           onChange={(e) => updateConfig('highlight', e.target.value)}
           onBlur={onConfigBlur}
           placeholder="ERROR,WARN"
+          idPrefix={idPrefix}
         />
       </div>
 
@@ -133,6 +147,7 @@ const StreamConfigComponent = ({
             onChange={(e) => updateConfig('tail', e.target.value)}
             onBlur={onConfigBlur}
             placeholder="-1 (all), 100"
+            idPrefix={idPrefix}
           />
           <AutocompleteField
             label="Node"
@@ -141,6 +156,7 @@ const StreamConfigComponent = ({
             onBlur={onConfigBlur}
             placeholder="node-name"
             suggestions={autocomplete.nodes}
+            idPrefix={idPrefix}
           />
           <AutocompleteField
             label="Context"
@@ -149,6 +165,7 @@ const StreamConfigComponent = ({
             onBlur={onConfigBlur}
             placeholder="minikube"
             suggestions={autocomplete.contexts}
+            idPrefix={idPrefix}
           />
           <InputField
             label="Max Log Requests"
@@ -156,6 +173,7 @@ const StreamConfigComponent = ({
             onChange={(e) => updateConfig('maxLogRequests', e.target.value)}
             onBlur={onConfigBlur}
             placeholder="50"
+            idPrefix={idPrefix}
           />
           <SelectField
             label="Timestamps"
@@ -163,26 +181,25 @@ const StreamConfigComponent = ({
             onChange={(e) => updateConfig('timestamps', e.target.value)}
             onBlur={onConfigBlur}
             options={TIMESTAMP_OPTIONS}
-          />
-          <CheckboxField
-            label="All Namespaces"
-            checked={config.allNamespaces}
-            onChange={(e) => updateConfig('allNamespaces', e.target.checked)}
+            idPrefix={idPrefix}
           />
           <CheckboxField
             label="Init Containers"
             checked={config.initContainers}
             onChange={(e) => updateConfig('initContainers', e.target.checked)}
+            idPrefix={idPrefix}
           />
           <CheckboxField
             label="Ephemeral Containers"
             checked={config.ephemeralContainers}
             onChange={(e) => updateConfig('ephemeralContainers', e.target.checked)}
+            idPrefix={idPrefix}
           />
           <CheckboxField
             label="No Follow (exit after logs)"
             checked={config.noFollow}
             onChange={(e) => updateConfig('noFollow', e.target.checked)}
+            idPrefix={idPrefix}
           />
         </div>
       )}
@@ -222,6 +239,7 @@ StreamConfigComponent.propTypes = {
     nodes: PropTypes.arrayOf(PropTypes.string),
     contexts: PropTypes.arrayOf(PropTypes.string),
   }).isRequired,
+  streamId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
 };
 
 // Memoize to prevent re-renders when logs update

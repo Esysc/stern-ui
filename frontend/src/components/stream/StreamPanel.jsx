@@ -1,6 +1,13 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { StreamConfig } from './StreamConfig';
+
+// Debug logging helper
+const debug = (...args) => {
+  if (import.meta.env.VITE_DEBUG === 'true' || localStorage.getItem('stern-ui-debug') === 'true') {
+    console.log('[StreamPanel]', ...args);
+  }
+};
 import { StreamActions } from './StreamActions';
 import { StreamHelp } from './StreamHelp';
 import { LogViewer, LogFilters, LogStatusBar } from '../logs';
@@ -21,17 +28,25 @@ import { DEFAULT_CONFIG } from '../../constants';
 /**
  * Main stream panel containing config, controls, and log viewer
  */
-export function StreamPanel({ streamId, persistSettings, initialConfig }) {
+export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, onReattach, isActive = true }) {
   // Load config from storage or use default
+  // Use initialConfig as key dependency so component remounts when it changes
   const [config, setConfig] = useState(() => {
     // Priority: initialConfig (for detached windows) > storage > default
     if (initialConfig) {
-      return { ...DEFAULT_CONFIG, ...initialConfig };
+      // For detached windows, mark as should auto-connect
+      // Ensure all critical fields are present
+      const detachedConfig = {
+        ...DEFAULT_CONFIG,
+        ...initialConfig,
+        wasConnected: true,
+        // Force query to be at least '.' if missing
+        query: initialConfig.query || '.'
+      };
+      debug('Initializing detached window with config:', detachedConfig);
+      return detachedConfig;
     }
-    if (persistSettings) {
-      return loadConfig(streamId);
-    }
-    return { ...DEFAULT_CONFIG };
+    return loadConfig(streamId);
   });
 
   const [searchFilter, setSearchFilter] = useState('');
@@ -39,6 +54,7 @@ export function StreamPanel({ streamId, persistSettings, initialConfig }) {
   const [autoScroll, setAutoScroll] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showSettings, setShowSettings] = useState(true);
   const [fontSize, setFontSize] = useState(14);
   const [showLineNumbers, setShowLineNumbers] = useState(true);
   const [wrapText, setWrapText] = useState(false);
@@ -58,29 +74,80 @@ export function StreamPanel({ streamId, persistSettings, initialConfig }) {
   // Autocomplete data
   const autocomplete = useAutoComplete(
     config.context,
-    config.namespace,
-    config.allNamespaces
+    config.namespace
   );
 
-  // Save config when persistSettings is enabled
+  // Auto-populate context if missing and contexts are available (only on initial load)
   useEffect(() => {
-    if (persistSettings) {
-      saveConfig(streamId, config);
+    if (!config.context && autocomplete.contexts.length > 0 && !isConnected) {
+      debug('Auto-populating missing context:', autocomplete.contexts[0]);
+      setConfig(prev => ({ ...prev, context: autocomplete.contexts[0] }));
     }
-  }, [config, persistSettings, streamId]);
+  }, [config.context, autocomplete.contexts, isConnected]);
 
-  // Computed values
-  const podColorMap = useMemo(() => buildPodColorMap(logs), [logs]);
-  const levelCounts = useMemo(() => countLogLevels(logs), [logs]);
+  // Save config when persistSettings is enabled
+  // But also always save it for detach/reattach functionality
+  useEffect(() => {
+    saveConfig(streamId, { ...config, wasConnected: isConnected });
+  }, [config, streamId, isConnected]);
+
+  // Auto-connect when initialConfig is provided (detached window or reattach)
+  // OR when loading from storage and stream was previously connected
+  useEffect(() => {
+    // Auto-connect if: has initialConfig OR was previously connected, AND have a query
+    const shouldAutoConnect = (initialConfig || config.wasConnected) && !isConnected && config.query;
+    if (shouldAutoConnect) {
+      debug('Auto-connecting...', { initialConfig: !!initialConfig, wasConnected: config.wasConnected });
+      // Small delay to ensure component is fully mounted
+      const timer = setTimeout(() => {
+        // Remove wasConnected before connecting
+        const { wasConnected: _wasConnected, ...cleanConfig } = config;
+        connect(cleanConfig);
+      }, 200);
+      return () => clearTimeout(timer);
+    } else {
+      debug('Not auto-connecting', {
+        hasInitialConfig: !!initialConfig,
+        wasConnected: config.wasConnected,
+        isConnected,
+        hasQuery: !!config.query
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once when component mounts
+
+  // Computed values - skip expensive computations when not active
+  const podColorMap = useMemo(() => {
+    if (!isActive) return {};
+    return buildPodColorMap(logs);
+  }, [logs, isActive]);
+
+  const levelCounts = useMemo(() => {
+    if (!isActive) return { error: 0, warn: 0, info: 0, debug: 0, total: 0 };
+    return countLogLevels(logs);
+  }, [logs, isActive]);
+
   const highlightPatterns = useMemo(
     () => parseHighlightPatterns(config.highlight),
     [config.highlight]
   );
 
-  const filteredLogs = useMemo(
-    () => filterLogs(logs, { levelFilter, searchFilter }),
-    [logs, levelFilter, searchFilter]
-  );
+  const filteredLogs = useMemo(() => {
+    if (!isActive) return []; // Don't filter logs when not active
+    return filterLogs(logs, {
+      levelFilter,
+      searchFilter,
+      // Client-side filters that apply instantly without reconnection
+      query: config.query,
+      since: config.since,
+      include: config.include,
+      exclude: config.exclude,
+      container: config.container,
+      excludeContainer: config.excludeContainer,
+      excludePod: config.excludePod
+      // NOTE: namespace, containerState, context, allNamespaces require reconnection
+    });
+  }, [logs, levelFilter, searchFilter, config.query, config.since, config.include, config.exclude, config.container, config.excludeContainer, config.excludePod, isActive]);
 
   // Fullscreen mode - handle escape key
   useEffect(() => {
@@ -89,22 +156,78 @@ export function StreamPanel({ streamId, persistSettings, initialConfig }) {
         setIsFullscreen(false);
       }
     };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
+    globalThis.addEventListener('keydown', handleEscape);
+    return () => globalThis.removeEventListener('keydown', handleEscape);
   }, [isFullscreen]);
 
   // Handlers
   const handleConnect = useCallback(() => {
-    connect(config);
+    // eslint-disable-next-line no-unused-vars
+    const { wasConnected, ...cleanConfig } = config;
+    debug('Connecting with config:', cleanConfig);
+    connect(cleanConfig);
   }, [connect, config]);
 
   const handleConfigBlur = useCallback(() => {
-    // Auto-reconnect when field loses focus if already connected
-    if (isConnected) {
-      disconnect();
-      setTimeout(() => connect(config), 100);
+    // Save config when field loses focus
+    saveConfig(streamId, config);
+  }, [streamId, config]);
+
+  // Auto-reconnect when essential server-side filters change (if already connected)
+  const prevConfigRef = useRef(config);
+  const reconnectTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!isConnected) {
+      // Update ref even when disconnected to avoid reconnecting on initial connect
+      prevConfigRef.current = config;
+      return;
     }
-  }, [isConnected, disconnect, connect, config]);
+
+    const prev = prevConfigRef.current;
+    const curr = config;
+
+    // Only reconnect for filters that CANNOT be applied client-side
+    const essentialServerSideFiltersChanged =
+      prev.namespace !== curr.namespace ||
+      prev.containerState !== curr.containerState ||
+      prev.allNamespaces !== curr.allNamespaces ||
+      prev.node !== curr.node ||
+      prev.context !== curr.context ||
+      prev.selector !== curr.selector ||
+      prev.tail !== curr.tail ||
+      prev.initContainers !== curr.initContainers ||
+      prev.ephemeralContainers !== curr.ephemeralContainers ||
+      prev.noFollow !== curr.noFollow ||
+      prev.maxLogRequests !== curr.maxLogRequests;
+
+    if (essentialServerSideFiltersChanged) {
+      debug('Essential server-side filter changed, auto-reconnecting...');
+
+      // Clear any pending reconnect
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+
+      disconnect();
+
+      // Debounce reconnection to avoid rapid reconnects
+      reconnectTimerRef.current = setTimeout(() => {
+        // eslint-disable-next-line no-unused-vars
+        const { wasConnected, ...cleanConfig } = config;
+        connect(cleanConfig);
+        reconnectTimerRef.current = null;
+      }, 300);
+    }
+
+    prevConfigRef.current = config;
+
+    return () => {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+    };
+  }, [config, isConnected, disconnect, connect]);
 
   const handleDownloadText = useCallback(() => {
     const content = formatLogsAsText(filteredLogs);
@@ -142,13 +265,14 @@ export function StreamPanel({ streamId, persistSettings, initialConfig }) {
       {/* Help panel */}
       <StreamHelp isVisible={showHelp} onClose={() => setShowHelp(false)} />
 
-      {!isFullscreen && (
+      {!isFullscreen && showSettings && (
         <div className="bg-gray-800 p-6 rounded-lg mb-6 border border-gray-700">
         <StreamConfig
           config={config}
           onChange={setConfig}
           onConfigBlur={handleConfigBlur}
           autocomplete={autocomplete}
+          streamId={streamId}
         />
 
         <StreamActions
@@ -168,18 +292,49 @@ export function StreamPanel({ streamId, persistSettings, initialConfig }) {
       )}
 
       {!isFullscreen && (
-        <LogFilters
-        searchFilter={searchFilter}
-        onSearchChange={setSearchFilter}
-        levelFilter={levelFilter}
-        onLevelChange={setLevelFilter}
-        levelCounts={levelCounts}
-        />
+        <div className="flex gap-4 items-end mb-4">
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+            title={showSettings ? 'Hide settings' : 'Show settings'}
+          >
+            {showSettings ? '▲' : '▼'}
+          </button>
+          <LogFilters
+            searchFilter={searchFilter}
+            onSearchChange={setSearchFilter}
+            levelFilter={levelFilter}
+            onLevelChange={setLevelFilter}
+            levelCounts={levelCounts}
+          />
+
+          {isDetached ? (
+            <div className="flex-shrink-0 ml-auto">
+              <button
+                onClick={() => onReattach(config)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+              >
+                ↴ Reattach to Main Window
+              </button>
+            </div>
+          ) : streamTabs && (
+            <div className="flex-shrink-0 ml-auto">
+              {streamTabs}
+            </div>
+          )}
+        </div>
       )}
 
-      <div className={`bg-black border border-gray-800 rounded-lg flex flex-col ${
-        isFullscreen ? 'fixed inset-4 z-50 h-auto' : 'h-[calc(100vh-650px)] min-h-[400px]'
-      }`}>
+      {(() => {
+        let containerClasses = 'bg-black border border-gray-800 rounded-lg flex flex-col ';
+        if (isFullscreen) {
+          containerClasses += 'fixed inset-4 z-50 h-auto';
+        } else if (showSettings) {
+          containerClasses += 'h-[calc(100vh-650px)] min-h-[400px]';
+        } else {
+          containerClasses += 'h-[calc(100vh-350px)] min-h-[600px]';
+        }
+        return <div className={containerClasses}>
         <LogStatusBar
           isConnected={isConnected}
           isPaused={isPaused}
@@ -203,7 +358,8 @@ export function StreamPanel({ streamId, persistSettings, initialConfig }) {
           onToggleLineNumbers={() => setShowLineNumbers(!showLineNumbers)}
           onToggleWrap={() => setWrapText(!wrapText)}
         />
-      </div>
+        </div>;
+      })()}
     </div>
   );
 }
@@ -211,10 +367,9 @@ export function StreamPanel({ streamId, persistSettings, initialConfig }) {
 
 StreamPanel.propTypes = {
   streamId: PropTypes.string.isRequired,
-  persistSettings: PropTypes.bool,
-  initialConfig: PropTypes.object
-};
-
-StreamPanel.defaultProps = {
-  persistSettings: false
+  initialConfig: PropTypes.object,
+  streamTabs: PropTypes.node,
+  isDetached: PropTypes.bool,
+  onReattach: PropTypes.func,
+  isActive: PropTypes.bool
 };

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -24,6 +26,15 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+// Debug logging helper - checks DEBUG env var
+var debugEnabled = os.Getenv("DEBUG") == "true"
+
+func debugLog(format string, args ...interface{}) {
+	if debugEnabled {
+		log.Printf("[DEBUG] "+format, args...)
+	}
+}
 
 //go:embed frontend/dist
 var frontendFS embed.FS
@@ -60,6 +71,14 @@ func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
 		}
 	}
 	return len(p), nil
+}
+
+// WriteMessage writes a message with the given type, protected by mutex
+func (w *WebSocketWriter) WriteMessage(messageType int, data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return w.conn.WriteMessage(messageType, data)
 }
 
 type streamParams struct {
@@ -263,15 +282,46 @@ func compileContainerRegexList(filterStr string) ([]*regexp.Regexp, error) {
 }
 
 func parseRegexFilters(params streamParams) (*regexp.Regexp, *regexp.Regexp, []*regexp.Regexp, []*regexp.Regexp, []*regexp.Regexp, []*regexp.Regexp, []*regexp.Regexp, error) {
-	queryRegex, err := regexp.Compile(params.query)
+	debugLog("=== parseRegexFilters ===")
+	debugLog("  namespace: %q", params.namespace)
+	debugLog("  selector: %q", params.selector)
+	debugLog("  query: %q", params.query)
+	debugLog("  container: %q", params.container)
+	debugLog("  excludeContainer: %q", params.excludeContainer)
+	debugLog("  excludePod: %q", params.excludePod)
+	debugLog("  include: %q", params.include)
+	debugLog("  exclude: %q", params.exclude)
+	debugLog("  highlight: %q", params.highlight)
+	debugLog("  since: %q", params.since)
+	debugLog("  tail: %s", params.tail)
+	debugLog("  allNamespaces: %q", params.allNamespaces)
+	debugLog("========================")
+
+	// Handle query regex - if container has pod/container format, extract pod name for query
+	queryPattern := params.query
+	if params.container != "" && strings.Contains(params.container, "/") {
+		// Extract pod name from "pod/container" format
+		parts := strings.Split(params.container, "/")
+		if len(parts) >= 2 {
+			podName := parts[0]
+			debugLog("Container field contains pod/container format. Extracted pod name: %q", podName)
+			// Override query to match only this specific pod
+			queryPattern = "^" + regexp.QuoteMeta(podName) + "$"
+			debugLog("Overriding query pattern to match specific pod: %q", queryPattern)
+		}
+	}
+
+	queryRegex, err := regexp.Compile(queryPattern)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid query regex: %w", err)
 	}
+	debugLog("Query regex compiled: %s", queryRegex.String())
 
 	containerRegex := regexp.MustCompile(".*")
 	if params.container != "" {
 		// Extract container name from "pod/container" format if needed
 		containerName := extractContainerName(params.container)
+		debugLog("Extracted container name: %q from input: %q", containerName, params.container)
 
 		// Check if it's already a regex pattern (contains regex special chars)
 		// If not, make it an exact match by escaping and anchoring
@@ -279,6 +329,7 @@ func parseRegexFilters(params streamParams) (*regexp.Regexp, *regexp.Regexp, []*
 		if !strings.ContainsAny(pattern, ".*+?[]{}()^$|\\") {
 			pattern = "^" + regexp.QuoteMeta(pattern) + "$"
 		}
+		debugLog("Container regex pattern: %q -> compiled regex: %s", pattern, pattern)
 
 		containerRegex, err = regexp.Compile(pattern)
 		if err != nil {
@@ -290,64 +341,37 @@ func parseRegexFilters(params streamParams) (*regexp.Regexp, *regexp.Regexp, []*
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid include filter: %w", err)
 	}
+	debugLog("Include regexes: %d patterns", len(includeRegexes))
 
 	excludeRegexes, err := compileRegexList(params.exclude)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid exclude filter: %w", err)
 	}
+	debugLog("Exclude regexes: %d patterns", len(excludeRegexes))
 
 	highlightRegexes, err := compileRegexList(params.highlight)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid highlight filter: %w", err)
 	}
+	debugLog("Highlight regexes: %d patterns", len(highlightRegexes))
 
 	excludeContainerRegexes, err := compileContainerRegexList(params.excludeContainer)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid exclude container: %w", err)
 	}
+	debugLog("Exclude container regexes: %d patterns", len(excludeContainerRegexes))
 
 	excludePodRegexes, err := compileRegexList(params.excludePod)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid exclude pod: %w", err)
 	}
+	debugLog("Exclude pod regexes: %d patterns", len(excludePodRegexes))
 
 	return queryRegex, containerRegex, includeRegexes, excludeRegexes, highlightRegexes, excludeContainerRegexes, excludePodRegexes, nil
 }
 
-func streamLogs(c *gin.Context) {
-	params := parseStreamParams(c)
-
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	clientset, kubeConfig, err := createKubeClient(params.contextName)
-	if err != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"%s"}`, err)))
-		return
-	}
-
-	tailLines, sinceDuration, maxReq := parseNumericParams(params)
-	namespaces := buildNamespaceList(params, kubeConfig)
-
-	labelSelector, fieldSelector, err := parseSelectors(params)
-	if err != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"%s"}`, err)))
-		return
-	}
-
-	containerStates := parseContainerStates(params.containerState)
-
-	queryRegex, containerRegex, includeRegexes, excludeRegexes, highlightRegexes, excludeContainerRegexes, excludePodRegexes, err := parseRegexFilters(params)
-	if err != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"%s"}`, err)))
-		return
-	}
-
-	// Create template with json function
-	tmpl := template.Must(template.New("stern").Funcs(template.FuncMap{
+func createSternTemplate() *template.Template {
+	return template.Must(template.New("stern").Funcs(template.FuncMap{
 		"json": func(in interface{}) (string, error) {
 			b, err := json.Marshal(in)
 			if err != nil {
@@ -358,45 +382,62 @@ func streamLogs(c *gin.Context) {
 	}).Parse(
 		`{"namespace":"{{.Namespace}}","podName":"{{.PodName}}","containerName":"{{.ContainerName}}","nodeName":"{{.NodeName}}","message":{{.Message | json}}}` + "\n",
 	))
+}
 
-	writer := &WebSocketWriter{conn: conn, buf: &bytes.Buffer{}}
+type sternConfigParams struct {
+	params                  streamParams
+	namespaces              []string
+	labelSelector           labels.Selector
+	fieldSelector           fields.Selector
+	tailLines               *int64
+	sinceDuration           time.Duration
+	maxReq                  int
+	containerStates         []stern.ContainerState
+	queryRegex              *regexp.Regexp
+	containerRegex          *regexp.Regexp
+	includeRegexes          []*regexp.Regexp
+	excludeRegexes          []*regexp.Regexp
+	highlightRegexes        []*regexp.Regexp
+	excludeContainerRegexes []*regexp.Regexp
+	excludePodRegexes       []*regexp.Regexp
+	writer                  *WebSocketWriter
+}
 
-	config := &stern.Config{
-		Namespaces:            namespaces,
-		PodQuery:              queryRegex,
-		ExcludePodQuery:       excludePodRegexes,
-		Timestamps:            params.timestamps != "",
+func buildSternConfig(cfg sternConfigParams) *stern.Config {
+	tmpl := createSternTemplate()
+
+	return &stern.Config{
+		Namespaces:            cfg.namespaces,
+		PodQuery:              cfg.queryRegex,
+		ExcludePodQuery:       cfg.excludePodRegexes,
+		Timestamps:            cfg.params.timestamps != "",
 		TimestampFormat:       stern.TimestampFormatDefault,
 		Location:              time.Local,
-		ContainerQuery:        containerRegex,
-		ExcludeContainerQuery: excludeContainerRegexes,
-		ContainerStates:       containerStates,
-		Exclude:               excludeRegexes,
-		Include:               includeRegexes,
-		Highlight:             highlightRegexes,
-		Since:                 sinceDuration,
-		AllNamespaces:         params.allNamespaces == "true",
-		LabelSelector:         labelSelector,
-		FieldSelector:         fieldSelector,
-		TailLines:             tailLines,
+		ContainerQuery:        cfg.containerRegex,
+		ExcludeContainerQuery: cfg.excludeContainerRegexes,
+		ContainerStates:       cfg.containerStates,
+		Exclude:               cfg.excludeRegexes,
+		Include:               cfg.includeRegexes,
+		Highlight:             cfg.highlightRegexes,
+		Since:                 cfg.sinceDuration,
+		AllNamespaces:         cfg.params.allNamespaces == "true",
+		LabelSelector:         cfg.labelSelector,
+		FieldSelector:         cfg.fieldSelector,
+		TailLines:             cfg.tailLines,
 		Template:              tmpl,
-		Follow:                params.noFollow != "true",
-		InitContainers:        params.initContainers != "false",
-		EphemeralContainers:   params.ephemeralContainers != "false",
-		MaxLogRequests:        maxReq,
-		Out:                   writer,
+		Follow:                cfg.params.noFollow != "true",
+		InitContainers:        cfg.params.initContainers != "false",
+		EphemeralContainers:   cfg.params.ephemeralContainers != "false",
+		MaxLogRequests:        cfg.maxReq,
+		Out:                   cfg.writer,
 		ErrOut:                io.Discard,
 	}
+}
 
-	// Use background context so stern doesn't get cancelled by HTTP request timeout
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Set WebSocket timeouts and handlers
+func setupWebSocketHandlers(conn *websocket.Conn, ctx context.Context, cancel context.CancelFunc, writer *WebSocketWriter) {
 	const (
 		pongWait   = 60 * time.Second
 		pingPeriod = 30 * time.Second
-		writeWait  = 10 * time.Second
 	)
 
 	// Set initial read deadline and pong handler
@@ -407,32 +448,10 @@ func streamLogs(c *gin.Context) {
 	})
 
 	// Start a goroutine to read (and discard) messages from client
-	// This is needed to process pong responses and detect disconnects
 	go func() {
 		defer cancel()
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
-				return
-			}
-		}
-	}()
-
-	// Periodic credential refresh wrapper
-	// Recreate clientset every 30 minutes to ensure fresh credentials
-	var clientMutex sync.Mutex
-	go func() {
-		ticker := time.NewTicker(30 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				clientMutex.Lock()
-				newClientset, _, err := createKubeClient(params.contextName)
-				if err == nil {
-					clientset = newClientset
-				}
-				clientMutex.Unlock()
-			case <-ctx.Done():
 				return
 			}
 		}
@@ -445,8 +464,7 @@ func streamLogs(c *gin.Context) {
 		for {
 			select {
 			case <-ticker.C:
-				conn.SetWriteDeadline(time.Now().Add(writeWait))
-				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				if err := writer.WriteMessage(websocket.PingMessage, nil); err != nil {
 					cancel()
 					return
 				}
@@ -461,9 +479,91 @@ func streamLogs(c *gin.Context) {
 		cancel()
 		return nil
 	})
+}
+
+func startCredentialRefresher(ctx context.Context, clientset *kubernetes.Interface, contextName string, clientMutex *sync.Mutex) {
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				clientMutex.Lock()
+				newClientset, _, err := createKubeClient(contextName)
+				if err == nil {
+					*clientset = newClientset
+				}
+				clientMutex.Unlock()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func streamLogs(c *gin.Context) {
+	params := parseStreamParams(c)
+
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	writer := &WebSocketWriter{conn: conn, buf: &bytes.Buffer{}}
+
+	clientset, kubeConfig, err := createKubeClient(params.contextName)
+	if err != nil {
+		_ = writer.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"%s"}`, err)))
+		return
+	}
+
+	tailLines, sinceDuration, maxReq := parseNumericParams(params)
+	namespaces := buildNamespaceList(params, kubeConfig)
+
+	labelSelector, fieldSelector, err := parseSelectors(params)
+	if err != nil {
+		_ = writer.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"%s"}`, err)))
+		return
+	}
+
+	containerStates := parseContainerStates(params.containerState)
+
+	queryRegex, containerRegex, includeRegexes, excludeRegexes, highlightRegexes, excludeContainerRegexes, excludePodRegexes, err := parseRegexFilters(params)
+	if err != nil {
+		_ = writer.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"%s"}`, err)))
+		return
+	}
+
+	config := buildSternConfig(sternConfigParams{
+		params:                  params,
+		namespaces:              namespaces,
+		labelSelector:           labelSelector,
+		fieldSelector:           fieldSelector,
+		tailLines:               tailLines,
+		sinceDuration:           sinceDuration,
+		maxReq:                  maxReq,
+		containerStates:         containerStates,
+		queryRegex:              queryRegex,
+		containerRegex:          containerRegex,
+		includeRegexes:          includeRegexes,
+		excludeRegexes:          excludeRegexes,
+		highlightRegexes:        highlightRegexes,
+		excludeContainerRegexes: excludeContainerRegexes,
+		excludePodRegexes:       excludePodRegexes,
+		writer:                  writer,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	setupWebSocketHandlers(conn, ctx, cancel, writer)
+
+	var clientMutex sync.Mutex
+	startCredentialRefresher(ctx, &clientset, params.contextName, &clientMutex)
 
 	if err := stern.Run(ctx, clientset, config); err != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"Stern error: %s"}`, err)))
+		_ = writer.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"Stern error: %s"}`, err)))
 	}
 }
 
@@ -528,9 +628,10 @@ func getNamespaces(c *gin.Context) {
 	}
 
 	cmd := exec.Command("kubectl", args...)
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[ERROR] Failed to get namespaces (context=%s): %v, output: %s", ctx, err, string(output))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": string(output)})
 		return
 	}
 
@@ -555,9 +656,10 @@ func getPods(c *gin.Context) {
 	}
 
 	cmd := exec.Command("kubectl", args...)
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[ERROR] Failed to get pods (context=%s, namespace=%s): %v, output: %s", ctx, namespace, err, string(output))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": string(output)})
 		return
 	}
 
@@ -583,9 +685,10 @@ func getContainers(c *gin.Context) {
 	}
 
 	cmd := exec.Command("kubectl", args...)
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[ERROR] Failed to get containers (context=%s, namespace=%s): %v, output: %s", ctx, namespace, err, string(output))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": string(output)})
 		return
 	}
 
@@ -632,9 +735,10 @@ func getNodes(c *gin.Context) {
 	}
 
 	cmd := exec.Command("kubectl", args...)
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[ERROR] Failed to get nodes (context=%s): %v, output: %s", ctx, err, string(output))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": string(output)})
 		return
 	}
 

@@ -12,7 +12,7 @@ export function StreamTabs({
   onDetachStream
 }) {
   return (
-    <div className="bg-gray-850 border-b border-gray-700 px-6 flex items-center">
+    <div className="flex items-center gap-1">
       <div className="flex gap-1">
         {streams.map(stream => (
           <StreamTab

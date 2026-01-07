@@ -215,7 +215,7 @@ The included `stern-ui.yaml` creates:
 | **Tail** | Number of initial lines | `-1` (all) |
 | **Node** | Filter by node name | - |
 | **Context** | Kubernetes context to use | current |
-| **Max Log Requests** | Max concurrent log requests | `50` |
+| **Max Log Requests** | Max concurrent log requests | `50` (auto: `500` for all namespaces) |
 
 ### Checkboxes
 

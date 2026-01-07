@@ -3,33 +3,53 @@ import { getWsHost, getWsProtocol, formatTimestamp } from '../utils/helpers';
 import { detectLogLevel } from '../utils/logUtils';
 import { MAX_LOGS, MAX_BUFFER } from '../constants';
 
+// Debug logging helper - only logs when DEBUG env var is set
+const debug = (...args) => {
+  if (import.meta.env.VITE_DEBUG === 'true' || localStorage.getItem('stern-ui-debug') === 'true') {
+    console.log('[useWebSocket]', ...args);
+  }
+};
+
+/**
+ * Helper to set parameter if value exists
+ */
+function setParamIfExists(params, key, value) {
+  if (value) params.set(key, value);
+}
+
 /**
  * Build WebSocket URL parameters from config
  */
 function buildWsParams(config) {
   const params = new URLSearchParams();
   params.set('query', config.query || '.');
-  if (config.namespace) params.set('namespace', config.namespace);
-  if (config.selector) params.set('selector', config.selector);
-  if (config.since) params.set('since', config.since);
-  if (config.container) params.set('container', config.container);
-  if (config.excludeContainer) params.set('excludeContainer', config.excludeContainer);
-  if (config.excludePod) params.set('excludePod', config.excludePod);
+
+  setParamIfExists(params, 'namespace', config.namespace);
+  setParamIfExists(params, 'selector', config.selector);
+  setParamIfExists(params, 'container', config.container);
+  setParamIfExists(params, 'excludeContainer', config.excludeContainer);
+  setParamIfExists(params, 'excludePod', config.excludePod);
+  setParamIfExists(params, 'include', config.include);
+  setParamIfExists(params, 'exclude', config.exclude);
+  setParamIfExists(params, 'highlight', config.highlight);
+  setParamIfExists(params, 'tail', config.tail);
+  setParamIfExists(params, 'node', config.node);
+  setParamIfExists(params, 'timestamps', config.timestamps);
+  setParamIfExists(params, 'context', config.context);
+
+  // Increase maxLogRequests when searching all namespaces
+  const maxLogRequests = config.allNamespaces && !config.namespace ? '500' : (config.maxLogRequests || '50');
+  params.set('maxLogRequests', maxLogRequests);
+
   if (config.containerState && config.containerState !== 'all') {
     params.set('containerState', config.containerState);
   }
-  if (config.include) params.set('include', config.include);
-  if (config.exclude) params.set('exclude', config.exclude);
-  if (config.highlight) params.set('highlight', config.highlight);
-  if (config.tail) params.set('tail', config.tail);
-  if (config.node) params.set('node', config.node);
-  if (config.allNamespaces) params.set('allNamespaces', 'true');
+  // Only set allNamespaces=true if no namespace is specified
+  if (config.allNamespaces && !config.namespace) params.set('allNamespaces', 'true');
   if (!config.initContainers) params.set('initContainers', 'false');
   if (!config.ephemeralContainers) params.set('ephemeralContainers', 'false');
-  if (config.timestamps) params.set('timestamps', config.timestamps);
   if (config.noFollow) params.set('noFollow', 'true');
-  if (config.context) params.set('context', config.context);
-  if (config.maxLogRequests) params.set('maxLogRequests', config.maxLogRequests);
+
   return params;
 }
 
@@ -72,6 +92,12 @@ export function useWebSocket() {
   const [isPaused, setIsPaused] = useState(false);
   const pauseBufferRef = useRef([]);
   const isPausedRef = useRef(false);
+  const wsRef = useRef(null);
+
+  // Keep refs in sync
+  useEffect(() => {
+    wsRef.current = ws;
+  }, [ws]);
 
   // Keep isPausedRef in sync with useEffect
   useEffect(() => {
@@ -100,31 +126,50 @@ export function useWebSocket() {
   }, []);
 
   const connect = useCallback((config) => {
-    if (ws) ws.close();
+    // Close existing connection using ref
+    if (wsRef.current) {
+      debug('Closing existing WebSocket before reconnecting');
+      wsRef.current.close();
+    }
+
     pauseBufferRef.current = [];
     setIsPaused(false);
     isPausedRef.current = false;
 
     const params = buildWsParams(config);
     const wsUrl = `${getWsProtocol()}//${getWsHost()}/ws/logs?${params.toString()}`;
+    debug('WebSocket URL:', wsUrl);
     const newWs = new WebSocket(wsUrl);
 
     newWs.onopen = () => {
+      debug('WebSocket connected');
       setIsConnected(true);
       setLogs([]);
     };
 
     newWs.onmessage = handleLogMessage;
-    newWs.onclose = () => setIsConnected(false);
-    newWs.onerror = () => setIsConnected(false);
+
+    newWs.onclose = () => {
+      debug('WebSocket closed');
+      setIsConnected(false);
+    };
+
+    newWs.onerror = (error) => {
+      debug('WebSocket error:', error);
+      setIsConnected(false);
+    };
+
     setWs(newWs);
-  }, [ws, handleLogMessage]);
+  }, [handleLogMessage]);
 
   const disconnect = useCallback(() => {
-    ws?.close();
+    if (wsRef.current) {
+      debug('Disconnecting WebSocket');
+      wsRef.current.close();
+    }
     setWs(null);
     setIsConnected(false);
-  }, [ws]);
+  }, []);
 
   const togglePause = useCallback(() => {
     if (isPaused) {

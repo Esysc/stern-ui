@@ -4,8 +4,8 @@
 export function hashString(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i);
-    hash |= 0;
+    hash = ((hash << 5) - hash) + str.codePointAt(i);
+    hash = Math.trunc(hash);
   }
   return Math.abs(hash);
 }
@@ -62,6 +62,6 @@ export function downloadFile(content, filename, mimeType = 'text/plain') {
  * Generate a filename with timestamp
  */
 export function generateLogFilename(extension = 'txt') {
-  const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+  const timestamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
   return `stern-logs-${timestamp}.${extension}`;
 }

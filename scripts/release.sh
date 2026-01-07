@@ -18,6 +18,7 @@ CHANGELOG_FILE="$REPO_ROOT/CHANGELOG.md"
 VERSION_TYPE=""
 AUTO_CONFIRM=false
 USE_CURRENT_VERSION=false
+FORCE_RERELEASE=false
 
 # Functions
 info() {
@@ -96,6 +97,8 @@ ARGUMENTS:
 OPTIONS:
     -c, --current   Use current version from CHANGELOG (no version bump)
                     Useful for first release or re-releasing
+    -f, --force     Force re-release: delete existing tag and GitHub release
+                    Useful for fixing mistakes or updating a release
     -y, --yes       Auto-confirm all prompts (non-interactive mode)
     -h, --help      Show this help message
 
@@ -132,6 +135,10 @@ parse_args() {
                 ;;
             -c|--current)
                 USE_CURRENT_VERSION=true
+                shift
+                ;;
+            -f|--force)
+                FORCE_RERELEASE=true
                 shift
                 ;;
             patch|minor|major)
@@ -218,23 +225,105 @@ prompt_version_bump() {
     done
 }
 
+# Extract commits since last release and categorize them
+extract_commits_since_last_release() {
+    local last_version=$1
+    local last_tag="v$last_version"
+
+    # Check if tag exists, if not get all commits
+    if git rev-parse "$last_tag" >/dev/null 2>&1; then
+        # Exclude release preparation commits
+        git log "$last_tag..HEAD" --pretty=format:"%s" --no-merges | grep -v "^chore: prepare release"
+    else
+        # First release - get all commits, excluding release prep
+        git log --pretty=format:"%s" --no-merges | grep -v "^chore: prepare release"
+    fi
+}
+
+# Generate changelog content from commits
+generate_changelog_content() {
+    local last_version=$1
+    local added=()
+    local changed=()
+    local fixed=()
+
+    # Extract commits
+    while IFS= read -r commit; do
+        # Categorize based on conventional commit prefixes
+        if [[ $commit =~ ^feat:.*$ ]] || [[ $commit =~ ^feature:.*$ ]]; then
+            # Remove prefix and add to Added section
+            msg=$(echo "$commit" | sed -E 's/^(feat|feature):\s*//')
+            added+=("$msg")
+        elif [[ $commit =~ ^fix:.*$ ]]; then
+            # Remove prefix and add to Fixed section
+            msg=$(echo "$commit" | sed -E 's/^fix:\s*//')
+            fixed+=("$msg")
+        elif [[ $commit =~ ^(chore|refactor|perf|style|docs):.*$ ]]; then
+            # Remove prefix and add to Changed section
+            msg=$(echo "$commit" | sed -E 's/^[^:]+:\s*//')
+            changed+=("$msg")
+        else
+            # Default to Changed if no conventional commit prefix
+            changed+=("$commit")
+        fi
+    done < <(extract_commits_since_last_release "$last_version")
+
+    # Generate output
+    echo "### Added"
+    echo ""
+    if [ ${#added[@]} -gt 0 ]; then
+        for item in "${added[@]}"; do
+            echo "- $item"
+        done
+    fi
+    echo ""
+    echo "### Changed"
+    echo ""
+    if [ ${#changed[@]} -gt 0 ]; then
+        for item in "${changed[@]}"; do
+            echo "- $item"
+        done
+    fi
+    echo ""
+    echo "### Fixed"
+    echo ""
+    if [ ${#fixed[@]} -gt 0 ]; then
+        for item in "${fixed[@]}"; do
+            echo "- $item"
+        done
+    fi
+}
+
 # Update CHANGELOG with new version
 update_changelog() {
     local new_version=$1
+    local old_version=$2
     local date=$(date +%Y-%m-%d)
     local temp_file=$(mktemp)
+    local temp_content=$(mktemp)
+
+    info "Generating changelog content from commits..."
+
+    # Generate changelog content from commits
+    generate_changelog_content "$old_version" > "$temp_content"
 
     info "Updating CHANGELOG.md..."
 
-    # Create new changelog entry by replacing the first version with the new one
-    # and adding an [Unreleased] section at the top
-    awk -v new_version="$new_version" -v date="$date" '
-    BEGIN { header_printed = 0; unreleased_added = 0 }
+    # Replace [Unreleased] with generated content and the new version
+    awk -v new_version="$new_version" -v date="$date" -v content_file="$temp_content" '
+    BEGIN {
+        unreleased_replaced = 0
+        # Read the generated content
+        while ((getline line < content_file) > 0) {
+            content = content line "\n"
+        }
+        close(content_file)
+    }
 
-    # Print everything up to the first version entry
-    /^## \[[0-9]+\.[0-9]+\.[0-9]+\]/ {
-        if (!unreleased_added) {
-            # Add Unreleased section before the first version
+    # Replace the [Unreleased] section
+    /^## \[Unreleased\]/ {
+        if (!unreleased_replaced) {
+            # Add new empty Unreleased section
             print "## [Unreleased]"
             print ""
             print "### Added"
@@ -243,19 +332,30 @@ update_changelog() {
             print ""
             print "### Fixed"
             print ""
-            unreleased_added = 1
+            # Add the new version entry with generated content
+            print "## [" new_version "] - " date
+            print ""
+            printf "%s", content
+            unreleased_replaced = 1
+
+            # Skip the old empty Unreleased sections
+            in_unreleased = 1
+            next
         }
-        # Print the line as-is (this is the old version entry)
-        print
-        next
     }
 
-    # Print all other lines as-is
+    # Skip lines until we hit the next version or non-empty content
+    in_unreleased && /^### (Added|Changed|Fixed)/ { next }
+    in_unreleased && /^$/ { next }
+    in_unreleased && /^## \[[0-9]/ { in_unreleased = 0 }
+
+    # Print all other lines
     { print }
     ' "$CHANGELOG_FILE" > "$temp_file"
 
     mv "$temp_file" "$CHANGELOG_FILE"
-    success "CHANGELOG.md updated"
+    rm "$temp_content"
+    success "CHANGELOG.md updated with version $new_version"
 }
 
 # Extract release notes for the current version
@@ -292,6 +392,37 @@ extract_release_notes() {
     rm "$temp_file"
 }
 
+# Delete existing tag and release
+delete_existing_release() {
+    local version=$1
+    local tag="v$version"
+
+    info "Checking for existing release $tag..."
+
+    # Check if tag exists locally
+    if git rev-parse "$tag" >/dev/null 2>&1; then
+        warning "Tag $tag exists locally, deleting..."
+        git tag -d "$tag"
+        success "Local tag deleted"
+    fi
+
+    # Check if tag exists remotely
+    if git ls-remote --tags origin | grep -q "refs/tags/$tag"; then
+        warning "Tag $tag exists on remote, deleting..."
+        git push origin ":refs/tags/$tag" 2>/dev/null || true
+        success "Remote tag deleted"
+    fi
+
+    # Check if GitHub release exists
+    if gh release view "$tag" >/dev/null 2>&1; then
+        warning "GitHub release $tag exists, deleting..."
+        gh release delete "$tag" --yes 2>/dev/null || true
+        success "GitHub release deleted"
+    fi
+
+    success "Existing release cleaned up"
+}
+
 # Create git tag
 create_tag() {
     local version=$1
@@ -299,7 +430,7 @@ create_tag() {
 
     info "Creating git tag $tag..."
 
-    # Check if tag already exists
+    # Check if tag already exists (should not happen if delete was called)
     if git rev-parse "$tag" >/dev/null 2>&1; then
         error "Tag $tag already exists"
     fi
@@ -405,9 +536,20 @@ main() {
     info "Starting release process..."
     echo ""
 
+    # Check if release exists and handle force flag
+    local tag="v$new_version"
+    if git rev-parse "$tag" >/dev/null 2>&1 || gh release view "$tag" >/dev/null 2>&1; then
+        if [ "$FORCE_RERELEASE" = true ]; then
+            warning "Release $tag already exists. Force flag enabled, will delete and recreate..."
+            delete_existing_release "$new_version"
+        else
+            error "Release $tag already exists. Use --force to delete and recreate it."
+        fi
+    fi
+
     # Only update changelog if bumping version
     if [ "$USE_CURRENT_VERSION" = false ]; then
-        update_changelog "$new_version"
+        update_changelog "$new_version" "$current_version"
     else
         info "Skipping CHANGELOG update (using current version)"
     fi
