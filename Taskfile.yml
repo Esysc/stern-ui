@@ -1,0 +1,173 @@
+version: '3'
+
+vars:
+  FRONTEND_DIR: frontend
+  DOCKER_IMAGE: stern-ui
+  DOCKER_TAG: latest
+  APP_PORT: 8080
+
+tasks:
+  # Backend tasks
+  backend:test:
+    desc: Run backend tests
+    dir: .
+    cmds:
+      - go test -v ./...
+
+  backend:build:
+    desc: Build backend binary
+    dir: .
+    cmds:
+      - go build -o stern-ui main.go
+    sources:
+      - "*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - stern-ui
+
+  backend:run:
+    desc: Run backend server
+    dir: .
+    deps:
+      - backend:build
+    cmds:
+      - ./stern-ui
+
+  # Frontend tasks
+  frontend:install:
+    desc: Install frontend dependencies
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm install
+    sources:
+      - package.json
+      - package-lock.json
+    generates:
+      - node_modules/**/*
+
+  frontend:test:
+    desc: Run frontend tests
+    dir: "{{.FRONTEND_DIR}}"
+    deps:
+      - frontend:install
+    cmds:
+      - npm run test
+
+  frontend:lint:
+    desc: Run frontend linter
+    dir: "{{.FRONTEND_DIR}}"
+    deps:
+      - frontend:install
+    cmds:
+      - npm run lint
+
+  frontend:build:
+    desc: Build frontend for production
+    dir: "{{.FRONTEND_DIR}}"
+    deps:
+      - frontend:install
+    cmds:
+      - npm run build
+    sources:
+      - src/**/*
+      - public/**/*
+      - index.html
+      - vite.config.js
+    generates:
+      - dist/**/*
+
+  frontend:dev:
+    desc: Run frontend development server
+    dir: "{{.FRONTEND_DIR}}"
+    deps:
+      - frontend:install
+    cmds:
+      - npm run dev
+
+  # Combined tasks
+  test:
+    desc: Run all tests (backend and frontend)
+    cmds:
+      - task: backend:test
+      - task: frontend:test
+
+  build:
+    desc: Build both backend and frontend
+    cmds:
+      - task: frontend:build
+      - task: backend:build
+
+  # Docker tasks
+  docker:build:
+    desc: Build Docker image
+    cmds:
+      - docker build -t {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}} .
+
+  docker:run:
+    desc: Run Docker container
+    deps:
+      - docker:build
+    cmds:
+      - docker run -p {{.APP_PORT}}:{{.APP_PORT}} --name stern-ui-container {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}}
+
+  docker:run:detached:
+    desc: Run Docker container in detached mode
+    deps:
+      - docker:build
+    cmds:
+      - docker run -d -p {{.APP_PORT}}:{{.APP_PORT}} --name stern-ui-container {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}}
+
+  docker:stop:
+    desc: Stop Docker container
+    cmds:
+      - docker stop stern-ui-container || true
+      - docker rm stern-ui-container || true
+
+  docker:logs:
+    desc: View Docker container logs
+    cmds:
+      - docker logs -f stern-ui-container
+
+  # Development tasks
+  dev:
+    desc: Run application in development mode (backend and frontend separately)
+    cmds:
+      - echo "Starting frontend dev server on http://localhost:5173"
+      - echo "Start backend separately with 'task backend:run'"
+      - task: frontend:dev
+
+  run:
+    desc: Build and run the complete application
+    deps:
+      - build
+    cmds:
+      - ./stern-ui
+
+  # Cleanup tasks
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -f stern-ui
+      - rm -rf {{.FRONTEND_DIR}}/dist
+      - rm -rf {{.FRONTEND_DIR}}/node_modules
+
+  clean:docker:
+    desc: Clean Docker images and containers
+    cmds:
+      - docker stop stern-ui-container || true
+      - docker rm stern-ui-container || true
+      - docker rmi {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}} || true
+
+  # All-in-one tasks
+  all:
+    desc: Run tests, build, and create Docker image
+    cmds:
+      - task: test
+      - task: build
+      - task: docker:build
+
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
