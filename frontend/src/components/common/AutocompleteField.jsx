@@ -1,10 +1,10 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, memo, useCallback } from 'react';
 import PropTypes from 'prop-types';
 
 /**
  * Input field with autocomplete suggestions
  */
-export function AutocompleteField({
+function AutocompleteFieldComponent({
   label,
   value,
   onChange,
@@ -12,33 +12,29 @@ export function AutocompleteField({
   placeholder,
   suggestions = [],
   disabled,
-  multiple = false // Support comma-separated multiple values
+  multiple = false, // Support comma-separated multiple values
+  idPrefix
 }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef(null);
-  const id = label.toLowerCase().replaceAll(/\s+/g, '-');
+  const id = idPrefix ? `${idPrefix}-${label.toLowerCase().replaceAll(/\s+/g, '-')}` : label.toLowerCase().replaceAll(/\s+/g, '-');
 
   const filteredSuggestions = useMemo(() => {
     if (!suggestions || suggestions.length === 0) return [];
 
-    // For multi-select, get the word after the last comma
-    const currentWord = multiple
-      ? value.substring(value.lastIndexOf(',') + 1).trim()
-      : value;
-
-    // Filter out already selected items in multi-select mode
-    const existingItems = multiple ? value.split(',').map(v => v.trim()).filter(Boolean) : [];
-
-    if (currentWord && currentWord.trim()) {
-      return suggestions
-        .filter(s => !existingItems.includes(s) && s.toLowerCase().includes(currentWord.toLowerCase()))
-        .slice(0, 20);
+    // Filter out already selected items
+    let existingItems;
+    if (multiple) {
+      existingItems = value.split(',').map(v => v.trim()).filter(Boolean);
+    } else {
+      const trimmedValue = value.trim();
+      existingItems = trimmedValue ? [trimmedValue] : [];
     }
-    // Show all suggestions when no filter (excluding already selected)
-    return suggestions.filter(s => !existingItems.includes(s)).slice(0, 20);
-  }, [value, suggestions, multiple]);
 
-  const handleSelect = (suggestion) => {
+    return suggestions.filter(s => !existingItems.includes(s)).slice(0, 50);
+  }, [suggestions, multiple, value]);
+
+  const handleSelect = useCallback((suggestion) => {
     if (multiple) {
       // Find the last comma and replace everything after it
       const lastComma = value.lastIndexOf(',');
@@ -53,7 +49,7 @@ export function AutocompleteField({
     if (multiple) {
       setTimeout(() => inputRef.current?.focus(), 10);
     }
-  };
+  }, [multiple, value, onChange]);
 
   return (
     <div className="relative">
@@ -83,9 +79,10 @@ export function AutocompleteField({
           <button
             type="button"
             className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
-            onClick={() => {
+            onMouseDown={(e) => {
+              e.preventDefault(); // Prevent input blur
+              setShowSuggestions(true);
               inputRef.current?.focus();
-              setShowSuggestions(!showSuggestions);
             }}
             tabIndex={-1}
           >
@@ -113,7 +110,7 @@ export function AutocompleteField({
   );
 }
 
-AutocompleteField.propTypes = {
+AutocompleteFieldComponent.propTypes = {
   label: PropTypes.string.isRequired,
   value: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
@@ -121,5 +118,8 @@ AutocompleteField.propTypes = {
   placeholder: PropTypes.string,
   suggestions: PropTypes.arrayOf(PropTypes.string),
   disabled: PropTypes.bool,
-  multiple: PropTypes.bool
+  multiple: PropTypes.bool,
+  idPrefix: PropTypes.string,
 };
+
+export const AutocompleteField = memo(AutocompleteFieldComponent);

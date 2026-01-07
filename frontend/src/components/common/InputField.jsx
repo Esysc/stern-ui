@@ -1,10 +1,11 @@
 import PropTypes from 'prop-types';
+import { memo } from 'react';
 
 /**
  * Basic input field component
  */
-export function InputField({ label, value, onChange, onBlur, placeholder, disabled }) {
-  const id = label.toLowerCase().replaceAll(/\s+/g, '-');
+function InputFieldComponent({ label, value, onChange, onBlur, placeholder, disabled, idPrefix }) {
+  const id = idPrefix ? `${idPrefix}-${label.toLowerCase().replaceAll(/\s+/g, '-')}` : label.toLowerCase().replaceAll(/\s+/g, '-');
 
   return (
     <div>
@@ -27,16 +28,19 @@ export function InputField({ label, value, onChange, onBlur, placeholder, disabl
   );
 }
 
-InputField.propTypes = {
+InputFieldComponent.propTypes = {
   label: PropTypes.string.isRequired,
   value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   onChange: PropTypes.func.isRequired,
   onBlur: PropTypes.func,
   placeholder: PropTypes.string,
   disabled: PropTypes.bool,
+  idPrefix: PropTypes.string,
 };
 
-InputField.defaultProps = {
+InputFieldComponent.defaultProps = {
   placeholder: '',
   disabled: false,
 };
+
+export const InputField = memo(InputFieldComponent);

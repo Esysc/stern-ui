@@ -1,10 +1,11 @@
 import PropTypes from 'prop-types';
+import { memo } from 'react';
 
 /**
  * Checkbox field component
  */
-export function CheckboxField({ label, checked, onChange }) {
-  const id = label.toLowerCase().replaceAll(/\s+/g, '-');
+function CheckboxFieldComponent({ label, checked, onChange, idPrefix }) {
+  const id = idPrefix ? `${idPrefix}-${label.toLowerCase().replaceAll(/\s+/g, '-')}` : label.toLowerCase().replaceAll(/\s+/g, '-');
 
   return (
     <div className="flex items-center gap-2 pt-6">
@@ -22,8 +23,11 @@ export function CheckboxField({ label, checked, onChange }) {
   );
 }
 
-CheckboxField.propTypes = {
+CheckboxFieldComponent.propTypes = {
   label: PropTypes.string.isRequired,
   checked: PropTypes.bool.isRequired,
   onChange: PropTypes.func.isRequired,
+  idPrefix: PropTypes.string,
 };
+
+export const CheckboxField = memo(CheckboxFieldComponent);

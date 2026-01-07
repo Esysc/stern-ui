@@ -62,3 +62,23 @@ export function saveGlobalSettings(settings) {
     console.error('Failed to save global settings:', e);
   }
 }
+
+/**
+ * Clear all stern-ui related data from localStorage
+ */
+export function clearAllSettings() {
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(STORAGE_KEY)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+    return true;
+  } catch (e) {
+    console.error('Failed to clear all settings:', e);
+    return false;
+  }
+}

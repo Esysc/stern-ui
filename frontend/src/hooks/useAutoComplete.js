@@ -4,7 +4,7 @@ import { getApiBase } from '../utils/helpers';
 /**
  * Custom hook for fetching autocomplete suggestions from the K8s API
  */
-export function useAutoComplete(context, namespace, allNamespaces) {
+export function useAutoComplete(context, namespace) {
   const [namespaces, setNamespaces] = useState([]);
   const [pods, setPods] = useState([]);
   const [containers, setContainers] = useState([]);
@@ -29,6 +29,17 @@ export function useAutoComplete(context, namespace, allNamespaces) {
         setNodes(nodeRes || []);
       } catch (e) {
         console.error('Failed to fetch autocomplete data:', e);
+
+        // If we have a context but all requests failed, it might be invalid
+        // Clear localStorage to prevent stuck state
+        if (context) {
+          console.warn('Context appears invalid, clearing localStorage:', context);
+          // Clear all stern-ui config from localStorage
+          Object.keys(localStorage)
+            .filter(key => key.startsWith('stern-ui-config-'))
+            .forEach(key => localStorage.removeItem(key));
+        }
+
         setNamespaces([]);
         setContexts([]);
         setNodes([]);
@@ -47,9 +58,14 @@ export function useAutoComplete(context, namespace, allNamespaces) {
 
       try {
         const params = new URLSearchParams();
-        if (namespace) params.set('namespace', namespace);
         if (context) params.set('context', context);
-        if (allNamespaces) params.set('allNamespaces', 'true');
+
+        // If namespace is specified, use it; otherwise get all namespaces
+        if (namespace) {
+          params.set('namespace', namespace);
+        } else {
+          params.set('allNamespaces', 'true');
+        }
 
         const res = await fetch(`${base}/api/pods?${params}`);
         if (res.ok) {
@@ -64,7 +80,7 @@ export function useAutoComplete(context, namespace, allNamespaces) {
     };
 
     fetchPods();
-  }, [namespace, context, allNamespaces]);
+  }, [namespace, context]);
 
   // Fetch containers when namespace changes
   useEffect(() => {
@@ -73,9 +89,14 @@ export function useAutoComplete(context, namespace, allNamespaces) {
 
       try {
         const params = new URLSearchParams();
-        if (namespace) params.set('namespace', namespace);
         if (context) params.set('context', context);
-        if (allNamespaces) params.set('allNamespaces', 'true');
+
+        // If namespace is specified, use it; otherwise get all namespaces
+        if (namespace) {
+          params.set('namespace', namespace);
+        } else {
+          params.set('allNamespaces', 'true');
+        }
 
         const res = await fetch(`${base}/api/containers?${params}`);
         if (res.ok) {
@@ -90,7 +111,7 @@ export function useAutoComplete(context, namespace, allNamespaces) {
     };
 
     fetchContainers();
-  }, [namespace, context, allNamespaces]);
+  }, [namespace, context]);
 
   // Memoize the return object to prevent causing re-renders
   return useMemo(() => ({

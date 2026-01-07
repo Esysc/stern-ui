@@ -2,9 +2,10 @@
  * Select dropdown field component
  */
 import PropTypes from 'prop-types';
+import { memo } from 'react';
 
-export function SelectField({ label, value, onChange, onBlur, options }) {
-  const id = label.toLowerCase().replaceAll(/\s+/g, '-');
+function SelectFieldComponent({ label, value, onChange, onBlur, options, idPrefix }) {
+  const id = idPrefix ? `${idPrefix}-${label.toLowerCase().replaceAll(/\s+/g, '-')}` : label.toLowerCase().replaceAll(/\s+/g, '-');
 
   return (
     <div>
@@ -31,7 +32,7 @@ export function SelectField({ label, value, onChange, onBlur, options }) {
   );
 }
 
-SelectField.propTypes = {
+SelectFieldComponent.propTypes = {
   label: PropTypes.string.isRequired,
   value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   onChange: PropTypes.func.isRequired,
@@ -42,4 +43,7 @@ SelectField.propTypes = {
       label: PropTypes.string.isRequired,
     })
   ).isRequired,
+  idPrefix: PropTypes.string,
 };
+
+export const SelectField = memo(SelectFieldComponent);
