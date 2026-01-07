@@ -26,6 +26,34 @@ A modern web interface for [stern](https://github.com/stern/stern), the multi-po
 
 ## Quick Start
 
+### Using Taskfile (Recommended)
+
+This project uses [Task](https://taskfile.dev) for task automation. Install it first:
+
+```bash
+# macOS
+brew install go-task
+
+# Linux
+sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
+
+# Or via Go
+go install github.com/go-task/task/v3/cmd/task@latest
+```
+
+View all available tasks:
+```bash
+task --list
+```
+
+**Main tasks:**
+- `task test` - Run all tests (backend + frontend)
+- `task build` - Build both backend and frontend
+- `task run` - Build and run the complete application
+- `task docker:build` - Build Docker image
+- `task docker:run` - Run Docker container
+- `task release -- [patch|minor|major] [--yes]` - Automated release process
+
 ### Prerequisites
 
 - [Go 1.25+](https://golang.org/dl/)
@@ -42,23 +70,50 @@ A modern web interface for [stern](https://github.com/stern/stern), the multi-po
    cd stern-ui
    ```
 
-2. **Build and run the frontend**
+2. **Run the frontend dev server**
    ```bash
-   cd frontend
-   npm install
-   npm run dev
+   task frontend:dev
    ```
 
 3. **Run the backend** (in another terminal)
    ```bash
-   go run main.go
+   task backend:run
    ```
 
 4. **Open your browser** at `http://localhost:5173` (Vite dev server proxies to backend)
 
+<details>
+<summary>Alternative: Manual commands without Taskfile</summary>
+
+```bash
+# Frontend
+cd frontend
+npm install
+npm run dev
+
+# Backend (in another terminal)
+go run main.go
+```
+</details>
+
 ### Production Build
 
 The frontend is **embedded into the Go binary** for easy deployment as a single executable.
+
+```bash
+# Build both frontend and backend
+task build
+
+# Run the single binary - no external files needed!
+task run
+# Or directly: ./stern-ui
+# Open http://localhost:8080
+```
+
+**Note**: The frontend must be built before building the Go binary, as the `go:embed` directive includes the `frontend/dist` directory at compile time.
+
+<details>
+<summary>Alternative: Manual build commands</summary>
 
 ```bash
 # Build frontend
@@ -70,28 +125,55 @@ cd ..
 # Build backend (frontend gets embedded automatically via go:embed)
 go build -o stern-ui main.go
 
-# Run the single binary - no external files needed!
+# Run
 ./stern-ui
-# Open http://localhost:8080
 ```
-
-**Note**: The frontend must be built before building the Go binary, as the `go:embed` directive includes the `frontend/dist` directory at compile time.
+</details>
 
 ## Docker
 
 ### Build the Image
 
 ```bash
-docker build -t stern-ui:latest .
+task docker:build
 ```
 
 ### Run Locally with Docker
 
 ```bash
+# Run interactively
+task docker:run
+
+# Or run in detached mode
+task docker:run:detached
+
+# View logs
+task docker:logs
+
+# Stop container
+task docker:stop
+```
+
+For custom kubeconfig mounting:
+```bash
 docker run -p 8080:8080 \
   -v ~/.kube/config:/root/.kube/config:ro \
   stern-ui:latest
 ```
+
+<details>
+<summary>Alternative: Manual Docker commands</summary>
+
+```bash
+# Build
+docker build -t stern-ui:latest .
+
+# Run
+docker run -p 8080:8080 \
+  -v ~/.kube/config:/root/.kube/config:ro \
+  stern-ui:latest
+```
+</details>
 
 ## Kubernetes Deployment
 
@@ -178,10 +260,16 @@ graph TB
 - Frontend is **embedded** in Go binary via `//go:embed`
 - Stern is used as a **Go library** (not CLI), imported from `github.com/stern/stern/stern`
 - Single binary deployment with no external dependencies except kubectl config
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/ws/logs` | WebSocket | Stream logs in real-time |
+| `/api/namespaces` | GET | List all namespaces (supports `?context=`) |
 | `/api/pods` | GET | List pods (supports `?namespace=` and `?context=`) |
 | `/api/containers` | GET | List container names (supports `?namespace=` and `?context=`) |
 | `/api/contexts` | GET | List available kubectl contexts |
-| `/api/nodes` | GET | List cluster nodes |
+| `/api/nodes` | GET | List cluster nodes (supports `?context=`) |
 
 ## Project Structure
 
@@ -213,20 +301,32 @@ stern-ui/
 ### Running Tests
 
 ```bash
-# Frontend tests (102 tests)
+# Run all tests (backend + frontend)
+task test
+
+# Or run separately
+task backend:test
+task frontend:test
+```
+
+<details>
+<summary>Alternative: Manual test commands</summary>
+
+```bash
+# Frontend tests
 cd frontend
 npm test
 
 # Backend tests
 go test -v ./...
 ```
+</details>
 
 ### Linting
 
 ```bash
 # Frontend
-cd frontend
-npm run lint
+task frontend:lint
 
 # Backend
 go vet ./...
@@ -260,14 +360,22 @@ Hooks include:
 - **Go 1.25** - Backend language
 - **Gin** - HTTP web framework
 - **Gorilla WebSocket** - WebSocket support
-- **stern v1.33.1** - Kubernetes log tailing (Go module)
+- **stern** - Kubernetes log tailing (Go module)
+- **client-go** - Kubernetes API client
 
 ### Frontend
 - **React 19** - UI framework
 - **Vite** - Build tool and dev server
-- **TailwindCSS 4** - Utility-first CSS
+- **TailwindCSS** - Utility-first CSS
 - **Vitest** - Test runner
 - **Testing Library** - React testing utilities
+
+### Build & Deployment
+- **Task (Taskfile)** - Task runner and build automation
+- **Docker** - Containerization
+- **Multi-stage builds** - Optimized container images
+
+For detailed version information, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Troubleshooting
 
@@ -286,14 +394,20 @@ The backend runs on port 8080 by default. Ensure:
 - Firewall allows the connection
 - When using Docker, port is properly mapped
 
+## Release Management
+
+See [scripts/README.md](scripts/README.md) for release automation documentation.
+
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
 3. Make your changes and add tests
-4. Run tests: `npm test && go test ./...`
+4. Run tests: `task test`
 5. Commit with pre-commit hooks: `git commit -m "feat: add my feature"`
 6. Push and create a Pull Request
+
+Please ensure all tests pass and code is properly linted before submitting.
 
 ## License
 
