@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.3.0] - 2026-01-08
+
+### Added
+
+- improve stream management with detach/reattach and persistent connections
+
+### Changed
+
+
+### Fixed
+
 ## [0.2.0] - 2026-01-08
 
 ### Added
