@@ -48,9 +48,10 @@ var upgrader = websocket.Upgrader{
 
 // WebSocketWriter writes stern output to a WebSocket connection
 type WebSocketWriter struct {
-	conn *websocket.Conn
-	buf  *bytes.Buffer
-	mu   sync.Mutex // Protects concurrent writes to websocket
+	conn      *websocket.Conn
+	buf       *bytes.Buffer
+	mu        sync.Mutex // Protects concurrent writes to websocket
+	untilTime time.Time  // If set, filters out logs after this time
 }
 
 func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
@@ -66,6 +67,39 @@ func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
 		if len(line) == 0 {
 			continue
 		}
+
+		// Filter by untilTime if set
+		if !w.untilTime.IsZero() {
+			var logEntry map[string]interface{}
+			if err := json.Unmarshal(line, &logEntry); err == nil {
+				// Extract timestamp from the message field
+				// Log format: [2026-01-15T14:44:37.663Z] "GET /adm/v1/administrator/ping..."
+				if message, ok := logEntry["message"].(string); ok && len(message) > 0 {
+					// Check if message starts with [
+					if message[0] == '[' {
+						// Find the closing bracket
+						endIdx := -1
+						for i := 1; i < len(message) && i < 30; i++ {
+							if message[i] == ']' {
+								endIdx = i
+								break
+							}
+						}
+
+						if endIdx > 0 {
+							timestampStr := message[1:endIdx]
+							if logTime, err := time.Parse(time.RFC3339Nano, timestampStr); err == nil {
+								// If log is after untilTime, skip it
+								if logTime.After(w.untilTime) {
+									continue
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
 		if err := w.conn.WriteMessage(websocket.TextMessage, line); err != nil {
 			return 0, err
 		}
@@ -102,6 +136,9 @@ type streamParams struct {
 	noFollow            string
 	contextName         string
 	maxLogRequests      string
+	timeRangeMode       string
+	sinceTime           string
+	untilTime           string
 }
 
 func parseStreamParams(c *gin.Context) streamParams {
@@ -126,6 +163,9 @@ func parseStreamParams(c *gin.Context) streamParams {
 		noFollow:            c.Query("noFollow"),
 		contextName:         c.Query("context"),
 		maxLogRequests:      c.Query("maxLogRequests"),
+		timeRangeMode:       c.Query("timeRangeMode"),
+		sinceTime:           c.Query("sinceTime"),
+		untilTime:           c.Query("untilTime"),
 	}
 }
 
@@ -165,9 +205,22 @@ func parseNumericParams(params streamParams) (*int64, time.Duration, int) {
 	}
 
 	var sinceDuration time.Duration
-	if params.since != "" {
+
+	// Handle absolute time range mode
+	if params.timeRangeMode == "absolute" && params.sinceTime != "" {
+		// Parse the sinceTime as datetime-local format (YYYY-MM-DDTHH:MM)
+		sinceT, err := time.Parse("2006-01-02T15:04", params.sinceTime)
+		if err == nil {
+			sinceDuration = time.Since(sinceT)
+			if sinceDuration < 0 {
+				sinceDuration = 0
+			}
+		}
+	} else if params.since != "" {
+		// Use relative time duration
 		sinceDuration, _ = time.ParseDuration(params.since)
 	} else {
+		// Default: last 48 hours
 		sinceDuration = 48 * time.Hour
 	}
 
@@ -401,6 +454,7 @@ type sternConfigParams struct {
 	excludeContainerRegexes []*regexp.Regexp
 	excludePodRegexes       []*regexp.Regexp
 	writer                  *WebSocketWriter
+	untilTime               time.Time
 }
 
 func buildSternConfig(cfg sternConfigParams) *stern.Config {
@@ -535,6 +589,19 @@ func streamLogs(c *gin.Context) {
 		return
 	}
 
+	// Parse untilTime if provided
+	var untilTime time.Time
+	if params.timeRangeMode == "absolute" && params.untilTime != "" {
+		parsedTime, err := time.Parse("2006-01-02T15:04", params.untilTime)
+		if err == nil {
+			untilTime = parsedTime
+			writer.untilTime = untilTime
+			// Automatically disable follow mode when untilTime is set
+			// This ensures stern stops after reaching the end time
+			params.noFollow = "true"
+		}
+	}
+
 	config := buildSternConfig(sternConfigParams{
 		params:                  params,
 		namespaces:              namespaces,
@@ -552,6 +619,7 @@ func streamLogs(c *gin.Context) {
 		excludeContainerRegexes: excludeContainerRegexes,
 		excludePodRegexes:       excludePodRegexes,
 		writer:                  writer,
+		untilTime:               untilTime,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -578,6 +646,7 @@ func main() {
 	r.GET("/api/containers", getContainers)
 	r.GET("/api/contexts", getContexts)
 	r.GET("/api/nodes", getNodes)
+	r.GET("/api/pod-metadata", getPodMetadata)
 
 	// Serve embedded static files from frontend/dist
 	distFS, err := fs.Sub(frontendFS, "frontend/dist")
@@ -744,4 +813,48 @@ func getNodes(c *gin.Context) {
 
 	nodes := strings.Fields(string(output))
 	c.JSON(http.StatusOK, nodes)
+}
+
+// getPodMetadata returns pod metadata including creation time
+func getPodMetadata(c *gin.Context) {
+	namespace := c.Query("namespace")
+	podName := c.Query("pod")
+	ctx := c.Query("context")
+
+	if podName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod parameter is required"})
+		return
+	}
+
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Get pod creation timestamp
+	args := []string{"get", "pod", podName, "-o", "jsonpath={.metadata.creationTimestamp}"}
+	if ctx != "" {
+		args = append([]string{"--context", ctx}, args...)
+	}
+	args = append(args, "-n", namespace)
+
+	cmd := exec.Command("kubectl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("[ERROR] Failed to get pod metadata (context=%s, namespace=%s, pod=%s): %v, output: %s", ctx, namespace, podName, err, string(output))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": string(output)})
+		return
+	}
+
+	creationTime := strings.TrimSpace(string(output))
+	// Parse and convert to datetime-local format (YYYY-MM-DDTHH:MM)
+	if creationTime != "" {
+		t, err := time.Parse(time.RFC3339, creationTime)
+		if err == nil {
+			creationTime = t.Format("2006-01-02T15:04")
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"creationTime": creationTime,
+	})
 }

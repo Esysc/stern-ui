@@ -51,21 +51,21 @@ export function useAutoComplete(context, namespace) {
     fetchData();
   }, [context]);
 
-  // Fetch pods when namespace changes
+  // Fetch pods when namespace or context changes
   useEffect(() => {
     const fetchPods = async () => {
       const base = getApiBase();
 
+      // Only fetch if namespace is in the valid list
+      if (!namespace || !namespaces.includes(namespace)) {
+        setPods([]);
+        return;
+      }
+
       try {
         const params = new URLSearchParams();
         if (context) params.set('context', context);
-
-        // If namespace is specified, use it; otherwise get all namespaces
-        if (namespace) {
-          params.set('namespace', namespace);
-        } else {
-          params.set('allNamespaces', 'true');
-        }
+        params.set('namespace', namespace);
 
         const res = await fetch(`${base}/api/pods?${params}`);
         if (res.ok) {
@@ -80,23 +80,23 @@ export function useAutoComplete(context, namespace) {
     };
 
     fetchPods();
-  }, [namespace, context]);
+  }, [namespace, context, namespaces]);
 
-  // Fetch containers when namespace changes
+  // Fetch containers when namespace or context changes
   useEffect(() => {
     const fetchContainers = async () => {
       const base = getApiBase();
 
+      // Only fetch if namespace is in the valid list
+      if (!namespace || !namespaces.includes(namespace)) {
+        setContainers([]);
+        return;
+      }
+
       try {
         const params = new URLSearchParams();
         if (context) params.set('context', context);
-
-        // If namespace is specified, use it; otherwise get all namespaces
-        if (namespace) {
-          params.set('namespace', namespace);
-        } else {
-          params.set('allNamespaces', 'true');
-        }
+        params.set('namespace', namespace);
 
         const res = await fetch(`${base}/api/containers?${params}`);
         if (res.ok) {
@@ -111,7 +111,7 @@ export function useAutoComplete(context, namespace) {
     };
 
     fetchContainers();
-  }, [namespace, context]);
+  }, [namespace, context, namespaces]);
 
   // Memoize the return object to prevent causing re-renders
   return useMemo(() => ({

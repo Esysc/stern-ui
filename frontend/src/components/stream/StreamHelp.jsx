@@ -60,13 +60,17 @@ const StreamHelpComponent = ({ isVisible, onClose }) => {
 
             <div>
               <h4 className="font-semibold text-gray-300 mb-1">Since</h4>
-              <p className="text-gray-400 mb-2">How far back to retrieve logs (Go duration format).</p>
+              <p className="text-gray-400 mb-2">Time range for log retrieval - select relative time or custom date range.</p>
               <div className="bg-gray-900 p-2 rounded space-y-1">
                 <div><code className="text-green-300">5m</code> - Last 5 minutes</div>
                 <div><code className="text-green-300">1h</code> - Last hour</div>
                 <div><code className="text-green-300">24h</code> - Last 24 hours</div>
                 <div><code className="text-green-300">48h</code> - Last 2 days (default)</div>
+                <div><code className="text-green-300">🗓️ Custom date range...</code> - Select specific start/end dates and times</div>
               </div>
+              <p className="text-yellow-300 text-xs mt-2">
+                💡 Tip: When using custom date range, times are in your local timezone and autoscroll is automatically disabled for viewing historical logs.
+              </p>
             </div>
           </div>
         </section>

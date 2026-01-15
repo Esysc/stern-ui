@@ -1,7 +1,8 @@
-import { useState, memo } from 'react';
+import { useState, memo, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { InputField, SelectField, CheckboxField, AutocompleteField } from '../common';
 import { CONTAINER_STATE_OPTIONS, TIMESTAMP_OPTIONS, SINCE_OPTIONS } from '../../constants';
+import { getApiBase } from '../../utils/helpers';
 
 /**
  * Configuration form for a log stream
@@ -14,6 +15,77 @@ const StreamConfigComponent = ({
   streamId
 }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [minDateTime, setMinDateTime] = useState('');
+
+  // Fetch the oldest pod creation time when namespace and query change
+  useEffect(() => {
+    const fetchOldestPodTime = async () => {
+      if (!config.namespace || !autocomplete.namespaces.includes(config.namespace)) {
+        setMinDateTime('');
+        return;
+      }
+
+      // Get the first pod from the query
+      const query = config.query || '.';
+      const pods = autocomplete.pods;
+
+      if (!pods || pods.length === 0) {
+        setMinDateTime('');
+        return;
+      }
+
+      // Try to get creation time for the first matching pod
+      let podName = pods[0];
+
+      // If query is a specific pod name (not a regex), use it
+      if (query && query !== '.' && !query.includes('*') && !query.includes('|') && !query.includes('[')) {
+        // Check if it's a resource reference like "deployment/nginx"
+        if (!query.includes('/')) {
+          podName = query;
+        }
+      }
+
+      try {
+        const base = getApiBase();
+        const params = new URLSearchParams({
+          namespace: config.namespace,
+          pod: podName
+        });
+        if (config.context) {
+          params.set('context', config.context);
+        }
+
+        const res = await fetch(`${base}/api/pod-metadata?${params}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.creationTime) {
+            // Backend returns time in YYYY-MM-DDTHH:MM format
+            // Ensure it's in the correct format for datetime-local input
+            const creationTime = data.creationTime;
+            console.log('[StreamConfig] Pod creation time:', creationTime);
+            setMinDateTime(creationTime);
+          } else {
+            console.warn('[StreamConfig] No creationTime in response:', data);
+            setMinDateTime('');
+          }
+        } else {
+          console.warn('[StreamConfig] Failed to fetch pod metadata:', res.status);
+          setMinDateTime('');
+        }
+      } catch (e) {
+        console.error('Failed to fetch pod metadata:', e);
+        setMinDateTime('');
+      }
+    };
+
+    fetchOldestPodTime();
+  }, [config.namespace, config.query, config.context, autocomplete.namespaces, autocomplete.pods]);
+
+  // Compute max datetime directly - current time for absolute mode
+  const maxDateTime = config.timeRangeMode === 'absolute' ? new Date().toISOString().slice(0, 16) : '';
+
+  // End date min should be the selected start date (or pod creation time if start not set)
+  const endDateMin = config.sinceTime || minDateTime;
 
   const updateConfig = (key, value) => {
     onChange({ ...config, [key]: value });
@@ -55,11 +127,51 @@ const StreamConfigComponent = ({
         <SelectField
           label="Since"
           value={config.since}
-          onChange={(e) => updateConfig('since', e.target.value)}
+          onChange={(e) => {
+            const newValue = e.target.value;
+            // Update both since and timeRangeMode together
+            onChange({
+              ...config,
+              since: newValue,
+              timeRangeMode: newValue === 'custom' ? 'absolute' : 'relative'
+            });
+          }}
           onBlur={onConfigBlur}
           options={SINCE_OPTIONS}
           idPrefix={idPrefix}
         />
+        {/* Show date pickers when "Custom date range" is selected */}
+        {config.since === 'custom' && (
+          <>
+            {console.log('[StreamConfig] Rendering date pickers - minDateTime:', minDateTime, 'maxDateTime:', maxDateTime)}
+            <InputField
+              label="Start Date & Time"
+              type="datetime-local"
+              value={config.sinceTime}
+              onChange={(e) => updateConfig('sinceTime', e.target.value)}
+              onBlur={onConfigBlur}
+              placeholder="Select start datetime"
+              min={minDateTime}
+              max={maxDateTime}
+              idPrefix={idPrefix}
+              compact={true}
+              helperText={minDateTime ? `Earliest: ${minDateTime.replace('T', ' ')}` : 'Select namespace to see pod start time'}
+            />
+            <InputField
+              label="End Date & Time"
+              type="datetime-local"
+              value={config.untilTime}
+              onChange={(e) => updateConfig('untilTime', e.target.value)}
+              onBlur={onConfigBlur}
+              placeholder="Select end datetime"
+              min={endDateMin}
+              max={maxDateTime}
+              idPrefix={idPrefix}
+              compact={true}
+              helperText={config.sinceTime ? `Must be after start time` : (maxDateTime ? `Latest: ${maxDateTime.replace('T', ' ')}` : 'Loading...')}
+            />
+          </>
+        )}
       </div>
 
       {/* Container Filtering */}
@@ -229,6 +341,9 @@ StreamConfigComponent.propTypes = {
     initContainers: PropTypes.bool,
     ephemeralContainers: PropTypes.bool,
     noFollow: PropTypes.bool,
+    timeRangeMode: PropTypes.string,
+    sinceTime: PropTypes.string,
+    untilTime: PropTypes.string,
   }).isRequired,
   onChange: PropTypes.func.isRequired,
   onConfigBlur: PropTypes.func,

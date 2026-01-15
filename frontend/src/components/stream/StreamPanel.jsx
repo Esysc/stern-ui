@@ -91,6 +91,13 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
     saveConfig(streamId, { ...config, wasConnected: isConnected });
   }, [config, streamId, isConnected]);
 
+  // Disable autoscroll when switching to custom time range (historical logs)
+  useEffect(() => {
+    if (config.since === 'custom' && autoScroll) {
+      setAutoScroll(false);
+    }
+  }, [config.since, autoScroll]);
+
   // Auto-connect when initialConfig is provided (detached window or reattach)
   // OR when loading from storage and stream was previously connected
   useEffect(() => {
