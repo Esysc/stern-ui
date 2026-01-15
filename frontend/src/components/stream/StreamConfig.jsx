@@ -1,7 +1,7 @@
 import { useState, memo } from 'react';
 import PropTypes from 'prop-types';
 import { InputField, SelectField, CheckboxField, AutocompleteField } from '../common';
-import { CONTAINER_STATE_OPTIONS, TIMESTAMP_OPTIONS, SINCE_OPTIONS } from '../../constants';
+import { CONTAINER_STATE_OPTIONS, TIMESTAMP_OPTIONS, SINCE_OPTIONS, TIME_RANGE_MODE_OPTIONS } from '../../constants';
 
 /**
  * Configuration form for a log stream
@@ -14,6 +14,11 @@ const StreamConfigComponent = ({
   streamId
 }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Compute max datetime directly - current time for absolute mode
+  const maxDateTime = config.timeRangeMode === 'absolute' ? new Date().toISOString().slice(0, 16) : '';
+  // Min datetime - could be set to pod creation time in future
+  const minDateTime = '';
 
   const updateConfig = (key, value) => {
     onChange({ ...config, [key]: value });
@@ -131,6 +136,46 @@ const StreamConfigComponent = ({
         />
       </div>
 
+      {/* Time Range Selection */}
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-4 p-3 bg-gray-700/30 rounded">
+        <SelectField
+          label="Time Range Mode"
+          value={config.timeRangeMode || 'relative'}
+          onChange={(e) => updateConfig('timeRangeMode', e.target.value)}
+          onBlur={onConfigBlur}
+          options={TIME_RANGE_MODE_OPTIONS}
+          idPrefix={idPrefix}
+        />
+        {config.timeRangeMode === 'absolute' && (
+          <>
+            <InputField
+              label="Start Date & Time"
+              type="datetime-local"
+              value={config.sinceTime}
+              onChange={(e) => updateConfig('sinceTime', e.target.value)}
+              onBlur={onConfigBlur}
+              placeholder="Select start datetime"
+              min={minDateTime}
+              idPrefix={idPrefix}
+              compact={true}
+              helperText={minDateTime ? `From: ${minDateTime.replace('T', ' ')}` : 'Loading container time...'}
+            />
+            <InputField
+              label="End Date & Time"
+              type="datetime-local"
+              value={config.untilTime}
+              onChange={(e) => updateConfig('untilTime', e.target.value)}
+              onBlur={onConfigBlur}
+              placeholder="Select end datetime"
+              max={maxDateTime}
+              idPrefix={idPrefix}
+              compact={true}
+              helperText={maxDateTime ? `Until: ${maxDateTime.replace('T', ' ')}` : 'Loading current time...'}
+            />
+          </>
+        )}
+      </div>
+
       {/* Advanced Options Toggle */}
       <button
         onClick={() => setShowAdvanced(!showAdvanced)}
@@ -229,6 +274,9 @@ StreamConfigComponent.propTypes = {
     initContainers: PropTypes.bool,
     ephemeralContainers: PropTypes.bool,
     noFollow: PropTypes.bool,
+    timeRangeMode: PropTypes.string,
+    sinceTime: PropTypes.string,
+    untilTime: PropTypes.string,
   }).isRequired,
   onChange: PropTypes.func.isRequired,
   onConfigBlur: PropTypes.func,

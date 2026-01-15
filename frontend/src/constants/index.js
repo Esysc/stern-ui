@@ -52,7 +52,10 @@ export const DEFAULT_CONFIG = {
   timestamps: '',
   noFollow: false,
   context: '',
-  maxLogRequests: '50'
+  maxLogRequests: '50',
+  timeRangeMode: 'relative',
+  sinceTime: '',
+  untilTime: ''
 };
 
 // Container state options
@@ -84,4 +87,10 @@ export const SINCE_OPTIONS = [
   { value: '24h', label: 'Last 24 hours' },
   { value: '48h', label: 'Last 2 days' },
   { value: '7d', label: 'Last 7 days' }
+];
+
+// Time range mode options
+export const TIME_RANGE_MODE_OPTIONS = [
+  { value: 'relative', label: 'Relative (last X hours/minutes)' },
+  { value: 'absolute', label: 'Absolute (specific date & time range)' }
 ];

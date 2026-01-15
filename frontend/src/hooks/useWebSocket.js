@@ -37,6 +37,11 @@ function buildWsParams(config) {
   setParamIfExists(params, 'timestamps', config.timestamps);
   setParamIfExists(params, 'context', config.context);
 
+  // Time range parameters
+  setParamIfExists(params, 'timeRangeMode', config.timeRangeMode);
+  setParamIfExists(params, 'sinceTime', config.sinceTime);
+  setParamIfExists(params, 'untilTime', config.untilTime);
+
   // Increase maxLogRequests when searching all namespaces
   const maxLogRequests = config.allNamespaces && !config.namespace ? '500' : (config.maxLogRequests || '50');
   params.set('maxLogRequests', maxLogRequests);
@@ -93,6 +98,8 @@ export function useWebSocket() {
   const pauseBufferRef = useRef([]);
   const isPausedRef = useRef(false);
   const wsRef = useRef(null);
+  const configRef = useRef(null);
+  const untilTimeRef = useRef(null);
 
   // Keep refs in sync
   useEffect(() => {
@@ -108,6 +115,16 @@ export function useWebSocket() {
     try {
       const line = JSON.parse(event.data);
       const logEntry = parseLogLine(line);
+
+      // Filter by untilTime if in absolute mode
+      if (untilTimeRef.current) {
+        const logTime = new Date(line.timestamp);
+        const untilTime = new Date(untilTimeRef.current);
+        if (logTime > untilTime) {
+          // Log is after the until time, skip it
+          return;
+        }
+      }
 
       if (isPausedRef.current) {
         pauseBufferRef.current.push(logEntry);
@@ -130,6 +147,15 @@ export function useWebSocket() {
     if (wsRef.current) {
       debug('Closing existing WebSocket before reconnecting');
       wsRef.current.close();
+    }
+
+    // Store config and until time for filtering
+    configRef.current = config;
+    if (config.timeRangeMode === 'absolute' && config.untilTime) {
+      // Convert datetime-local to ISO format for comparison
+      untilTimeRef.current = config.untilTime.replace('T', 'T') + ':00Z';
+    } else {
+      untilTimeRef.current = null;
     }
 
     pauseBufferRef.current = [];

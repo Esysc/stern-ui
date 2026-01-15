@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, memo, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
 
 /**
@@ -19,20 +19,46 @@ function AutocompleteFieldComponent({
   const inputRef = useRef(null);
   const id = idPrefix ? `${idPrefix}-${label.toLowerCase().replaceAll(/\s+/g, '-')}` : label.toLowerCase().replaceAll(/\s+/g, '-');
 
-  const filteredSuggestions = useMemo(() => {
-    if (!suggestions || suggestions.length === 0) return [];
-
-    // Filter out already selected items
-    let existingItems;
-    if (multiple) {
-      existingItems = value.split(',').map(v => v.trim()).filter(Boolean);
-    } else {
-      const trimmedValue = value.trim();
-      existingItems = trimmedValue ? [trimmedValue] : [];
+  // Compute filtered list directly during render
+  const getFilteredList = () => {
+    if (!suggestions || suggestions.length === 0) {
+      return [];
     }
 
-    return suggestions.filter(s => !existingItems.includes(s)).slice(0, 50);
-  }, [suggestions, multiple, value]);
+    // Get the current search term
+    let searchTerm = '';
+    if (multiple) {
+      // For multiple values, get the text after the last comma
+      const lastComma = value.lastIndexOf(',');
+      searchTerm = lastComma >= 0 ? value.substring(lastComma + 1).trim() : value.trim();
+    } else {
+      searchTerm = value.trim();
+    }
+
+    // Filter out already selected items
+    let existingItems = [];
+    if (multiple) {
+      existingItems = value.split(',').map(v => v.trim()).filter(Boolean);
+    }
+
+    // Debug logging
+    const filtered = suggestions
+      .filter(s => {
+        // Exclude already selected items
+        if (existingItems.includes(s)) return false;
+        // If there's a search term, only show matching items
+        if (searchTerm) {
+          const matches = s.toLowerCase().includes(searchTerm.toLowerCase());
+          if (!matches) return false;
+        }
+        return true;
+      })
+      .slice(0, 50);
+
+    return filtered;
+  };
+
+  const filteredList = getFilteredList();
 
   const handleSelect = useCallback((suggestion) => {
     if (multiple) {
@@ -65,7 +91,10 @@ function AutocompleteFieldComponent({
           id={id}
           className={`w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 pr-8 focus:outline-none focus:ring-2 focus:ring-green-500 text-white placeholder-gray-500 ${disabled ? 'opacity-50' : ''}`}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value);
+            if (!showSuggestions) setShowSuggestions(true);
+          }}
           onFocus={() => setShowSuggestions(true)}
           onBlur={(e) => {
             setTimeout(() => setShowSuggestions(false), 150);
@@ -92,18 +121,22 @@ function AutocompleteFieldComponent({
           </button>
         )}
       </div>
-      {showSuggestions && filteredSuggestions.length > 0 && (
+      {showSuggestions && (
         <div className="absolute z-20 w-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg max-h-48 overflow-y-auto">
-          {filteredSuggestions.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              className="w-full text-left px-3 py-2 hover:bg-gray-600 cursor-pointer text-sm"
-              onMouseDown={() => handleSelect(suggestion)}
-            >
-              {suggestion}
-            </button>
-          ))}
+          {filteredList.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-gray-400">No matches</div>
+          ) : (
+            filteredList.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                className="w-full text-left px-3 py-2 hover:bg-gray-600 cursor-pointer text-sm"
+                onMouseDown={() => handleSelect(suggestion)}
+              >
+                {suggestion}
+              </button>
+            ))
+          )}
         </div>
       )}
     </div>
@@ -122,4 +155,4 @@ AutocompleteFieldComponent.propTypes = {
   idPrefix: PropTypes.string,
 };
 
-export const AutocompleteField = memo(AutocompleteFieldComponent);
+export const AutocompleteField = AutocompleteFieldComponent;
