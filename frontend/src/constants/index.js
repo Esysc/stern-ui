@@ -86,7 +86,8 @@ export const SINCE_OPTIONS = [
   { value: '12h', label: 'Last 12 hours' },
   { value: '24h', label: 'Last 24 hours' },
   { value: '48h', label: 'Last 2 days' },
-  { value: '7d', label: 'Last 7 days' }
+  { value: '7d', label: 'Last 7 days' },
+  { value: 'custom', label: '🗓️ Custom date range...' }
 ];
 
 // Time range mode options

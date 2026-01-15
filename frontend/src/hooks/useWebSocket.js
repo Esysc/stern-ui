@@ -39,8 +39,26 @@ function buildWsParams(config) {
 
   // Time range parameters
   setParamIfExists(params, 'timeRangeMode', config.timeRangeMode);
-  setParamIfExists(params, 'sinceTime', config.sinceTime);
-  setParamIfExists(params, 'untilTime', config.untilTime);
+
+  // Only send since if in relative mode (or no mode set)
+  if (!config.timeRangeMode || config.timeRangeMode === 'relative') {
+    setParamIfExists(params, 'since', config.since);
+  }
+
+  // Only send sinceTime/untilTime if in absolute mode
+  if (config.timeRangeMode === 'absolute') {
+    // Convert local datetime to UTC for backend
+    if (config.sinceTime) {
+      const localDate = new Date(config.sinceTime);
+      const utcTime = localDate.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM in UTC
+      params.set('sinceTime', utcTime);
+    }
+    if (config.untilTime) {
+      const localDate = new Date(config.untilTime);
+      const utcTime = localDate.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM in UTC
+      params.set('untilTime', utcTime);
+    }
+  }
 
   // Increase maxLogRequests when searching all namespaces
   const maxLogRequests = config.allNamespaces && !config.namespace ? '500' : (config.maxLogRequests || '50');

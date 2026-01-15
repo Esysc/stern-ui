@@ -72,9 +72,31 @@ func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
 		if !w.untilTime.IsZero() {
 			var logEntry map[string]interface{}
 			if err := json.Unmarshal(line, &logEntry); err == nil {
-				// For now, we can't easily extract timestamps from JSON logs
-				// The timestamp filtering is applied based on stern's Since parameter
-				// A more sophisticated approach would parse log timestamps if available
+				// Extract timestamp from the message field
+				// Log format: [2026-01-15T14:44:37.663Z] "GET /adm/v1/administrator/ping..."
+				if message, ok := logEntry["message"].(string); ok && len(message) > 0 {
+					// Check if message starts with [
+					if message[0] == '[' {
+						// Find the closing bracket
+						endIdx := -1
+						for i := 1; i < len(message) && i < 30; i++ {
+							if message[i] == ']' {
+								endIdx = i
+								break
+							}
+						}
+
+						if endIdx > 0 {
+							timestampStr := message[1:endIdx]
+							if logTime, err := time.Parse(time.RFC3339Nano, timestampStr); err == nil {
+								// If log is after untilTime, skip it
+								if logTime.After(w.untilTime) {
+									continue
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 
@@ -574,6 +596,9 @@ func streamLogs(c *gin.Context) {
 		if err == nil {
 			untilTime = parsedTime
 			writer.untilTime = untilTime
+			// Automatically disable follow mode when untilTime is set
+			// This ensures stern stops after reaching the end time
+			params.noFollow = "true"
 		}
 	}
 
