@@ -9,24 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- add keyboard shortcuts panel for connect, disconnect, pause, clear, and filter reset actions
-- add active filter chips for quick visibility and one-click removal of applied filters
-- add explicit connecting and connection error feedback in the log status area
+### Changed
+
+### Fixed
+
+## [0.4.0] - 2026-03-30
+
+### Added
+
 
 ### Changed
 
+- preparing release
+- address previous PR feedback
+- add imrpovements and fix bugs
+
+### Fixed
+
+- parse timestamp from log message for untilTime filtering > > - Extract timestamp from log message field instead of non-existent timestamp field > - Timestamp format: [2026-01-15T14:44:37.663Z] at start of message > - Only send logs where timestamp <= untilTime > - Fixes issue where logs continued past specified end time
+- resolve ESLint errors
+- add keyboard shortcuts panel for connect, disconnect, pause, clear, and filter reset actions
+- add active filter chips for quick visibility and one-click removal of applied filters
+- add explicit connecting and connection error feedback in the log status area
 - improve stream detach behavior to preserve active runtime configuration and connection state in detached windows
 - improve toolbar and log viewer accessibility with clearer control labels, focus states, and responsive layout behavior
 - improve download actions to work reliably with click and keyboard interactions instead of hover-only behavior
 - improve log filtering workflow with a dedicated reset action and clearer empty-state guidance
-
-### Fixed
-
 - fix detached stream windows opening in a disconnected state after detaching an active stream
 - fix popup-blocked detach attempts removing the source stream from the main window
 - fix stream tab runtime PropTypes mismatches for numeric stream ids
 - fix stale websocket error messages persisting after successful reconnect or manual disconnect
-
 ## [0.3.0] - 2026-01-08
 
 ### Added
