@@ -5,7 +5,9 @@ import PropTypes from 'prop-types';
  */
 export function LogStatusBar({
   isConnected,
+  isConnecting,
   isPaused,
+  connectionError,
   filteredCount,
   totalCount,
   podCount,
@@ -15,14 +17,18 @@ export function LogStatusBar({
     <div className="px-4 py-2 bg-gray-900 border-b border-gray-800 flex items-center justify-between text-xs">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : isConnecting ? 'bg-yellow-500' : 'bg-red-500'}`} />
           <span className="text-gray-400">
-            {isConnected ? 'Connected' : 'Disconnected'}
+            {isConnected ? 'Connected' : isConnecting ? 'Connecting...' : 'Disconnected'}
           </span>
         </div>
 
         {isPaused && (
           <span className="text-yellow-500">⏸ Paused</span>
+        )}
+
+        {!!connectionError && (
+          <span className="text-red-400">{connectionError}</span>
         )}
       </div>
 
@@ -42,7 +48,9 @@ export function LogStatusBar({
 
 LogStatusBar.propTypes = {
   isConnected: PropTypes.bool.isRequired,
+  isConnecting: PropTypes.bool,
   isPaused: PropTypes.bool.isRequired,
+  connectionError: PropTypes.string,
   filteredCount: PropTypes.number.isRequired,
   totalCount: PropTypes.number.isRequired,
   podCount: PropTypes.number.isRequired,

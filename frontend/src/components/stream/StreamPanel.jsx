@@ -28,7 +28,7 @@ import { DEFAULT_CONFIG } from '../../constants';
 /**
  * Main stream panel containing config, controls, and log viewer
  */
-export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, onReattach, isActive = true }) {
+export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, onReattach, onStreamStateChange, isActive = true }) {
   // Load config from storage or use default
   // Use initialConfig as key dependency so component remounts when it changes
   const [config, setConfig] = useState(() => {
@@ -53,6 +53,7 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
   const [levelFilter, setLevelFilter] = useState('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSettings, setShowSettings] = useState(true);
   const [fontSize, setFontSize] = useState(14);
@@ -63,6 +64,8 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
   const {
     logs,
     isConnected,
+    isConnecting,
+    connectionError,
     isPaused,
     connect,
     disconnect,
@@ -91,6 +94,11 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
     saveConfig(streamId, { ...config, wasConnected: isConnected });
   }, [config, streamId, isConnected]);
 
+  // Share latest stream runtime state with parent so detach can preserve live state.
+  useEffect(() => {
+    onStreamStateChange?.({ streamId, config, isConnected });
+  }, [streamId, config, isConnected, onStreamStateChange]);
+
   // Disable autoscroll when switching to custom time range (historical logs)
   useEffect(() => {
     if (config.since === 'custom' && autoScroll) {
@@ -108,7 +116,8 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
       // Small delay to ensure component is fully mounted
       const timer = setTimeout(() => {
         // Remove wasConnected before connecting
-        const { wasConnected: _wasConnected, ...cleanConfig } = config;
+        const cleanConfig = { ...config };
+        delete cleanConfig.wasConnected;
         connect(cleanConfig);
       }, 200);
       return () => clearTimeout(timer);
@@ -257,20 +266,135 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
     }
   }, [autoScroll, isPaused, isConnected, togglePause]);
 
+  const handleResetFilters = useCallback(() => {
+    setSearchFilter('');
+    setLevelFilter('all');
+  }, []);
+
+  const activeFilterChips = useMemo(() => {
+    const chips = [];
+
+    if (searchFilter.trim()) {
+      chips.push({ key: 'search', label: `Search: ${searchFilter.trim()}`, onRemove: () => setSearchFilter('') });
+    }
+
+    if (levelFilter !== 'all') {
+      chips.push({ key: 'level', label: `Level: ${levelFilter}`, onRemove: () => setLevelFilter('all') });
+    }
+
+    if (config.namespace) {
+      chips.push({ key: 'namespace', label: `Namespace: ${config.namespace}`, onRemove: () => setConfig(prev => ({ ...prev, namespace: '' })) });
+    }
+
+    if (config.query && config.query !== '.') {
+      chips.push({ key: 'query', label: `Query: ${config.query}`, onRemove: () => setConfig(prev => ({ ...prev, query: '.' })) });
+    }
+
+    if (config.include) {
+      chips.push({ key: 'include', label: `Include: ${config.include}`, onRemove: () => setConfig(prev => ({ ...prev, include: '' })) });
+    }
+
+    if (config.exclude) {
+      chips.push({ key: 'exclude', label: `Exclude: ${config.exclude}`, onRemove: () => setConfig(prev => ({ ...prev, exclude: '' })) });
+    }
+
+    if (config.container) {
+      chips.push({ key: 'container', label: `Container: ${config.container}`, onRemove: () => setConfig(prev => ({ ...prev, container: '' })) });
+    }
+
+    return chips;
+  }, [searchFilter, levelFilter, config]);
+
+  useEffect(() => {
+    const isEditableTarget = (target) => {
+      if (!(target instanceof HTMLElement)) return false;
+
+      const tag = target.tagName.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+    };
+
+    const handleKeyDown = (event) => {
+      if (isEditableTarget(event.target)) return;
+      if (!(event.altKey && event.shiftKey)) return;
+
+      const key = event.key.toLowerCase();
+
+      if (key === 'k') {
+        event.preventDefault();
+        setShowShortcuts(prev => !prev);
+        return;
+      }
+
+      if (key === 'c') {
+        event.preventDefault();
+        if (isConnected) {
+          disconnect();
+        } else if (!isConnecting) {
+          handleConnect();
+        }
+        return;
+      }
+
+      if (key === 'p' && isConnected) {
+        event.preventDefault();
+        togglePause();
+        return;
+      }
+
+      if (key === 'l') {
+        event.preventDefault();
+        clearLogs();
+        return;
+      }
+
+      if (key === 'r') {
+        event.preventDefault();
+        handleResetFilters();
+      }
+    };
+
+    globalThis.addEventListener('keydown', handleKeyDown);
+    return () => globalThis.removeEventListener('keydown', handleKeyDown);
+  }, [clearLogs, disconnect, handleConnect, handleResetFilters, isConnected, isConnecting, togglePause]);
+
   return (
     <div className="p-6">
       {/* Help toggle button */}
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap gap-3">
         <button
           onClick={() => setShowHelp(!showHelp)}
-          className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded font-medium transition-colors"
+          className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          aria-expanded={showHelp}
+          aria-controls={`stream-help-${streamId}`}
         >
           {showHelp ? '📚 Hide Help' : '📚 Show Help'}
+        </button>
+        <button
+          onClick={() => setShowShortcuts(!showShortcuts)}
+          className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          aria-expanded={showShortcuts}
+          aria-controls={`stream-shortcuts-${streamId}`}
+        >
+          {showShortcuts ? '⌨ Hide Shortcuts' : '⌨ Shortcuts'}
         </button>
       </div>
 
       {/* Help panel */}
-      <StreamHelp isVisible={showHelp} onClose={() => setShowHelp(false)} />
+      <StreamHelp isVisible={showHelp} onClose={() => setShowHelp(false)} panelId={`stream-help-${streamId}`} />
+
+      {showShortcuts && (
+        <div id={`stream-shortcuts-${streamId}`} className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-6 text-sm">
+          <div className="font-semibold text-gray-200 mb-3">Keyboard Shortcuts</div>
+          <div className="grid gap-2 md:grid-cols-2 text-gray-300">
+            <div><span className="text-blue-300">Alt+Shift+C</span> connect or disconnect</div>
+            <div><span className="text-blue-300">Alt+Shift+P</span> pause or resume stream</div>
+            <div><span className="text-blue-300">Alt+Shift+L</span> clear visible logs</div>
+            <div><span className="text-blue-300">Alt+Shift+R</span> reset log filters</div>
+            <div><span className="text-blue-300">Alt+Shift+K</span> toggle shortcuts panel</div>
+            <div><span className="text-blue-300">Esc</span> exit fullscreen or close menus</div>
+          </div>
+        </div>
+      )}
 
       {!isFullscreen && showSettings && (
         <div className="bg-gray-800 p-6 rounded-lg mb-6 border border-gray-700">
@@ -284,6 +408,7 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
 
         <StreamActions
           isConnected={isConnected}
+          isConnecting={isConnecting}
           isPaused={isPaused}
           autoScroll={autoScroll}
           bufferCount={getBufferCount()}
@@ -299,36 +424,58 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
       )}
 
       {!isFullscreen && (
-        <div className="flex gap-4 items-end mb-4">
+        <div className="flex gap-4 items-end mb-4 flex-wrap">
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             title={showSettings ? 'Hide settings' : 'Show settings'}
+            aria-label={showSettings ? 'Hide stream settings' : 'Show stream settings'}
+            aria-expanded={showSettings}
           >
             {showSettings ? '▲' : '▼'}
           </button>
-          <LogFilters
-            searchFilter={searchFilter}
-            onSearchChange={setSearchFilter}
-            levelFilter={levelFilter}
-            onLevelChange={setLevelFilter}
-            levelCounts={levelCounts}
-          />
+          <div className="flex-1 min-w-[16rem]">
+            <LogFilters
+              searchFilter={searchFilter}
+              onSearchChange={setSearchFilter}
+              levelFilter={levelFilter}
+              onLevelChange={setLevelFilter}
+              onResetFilters={handleResetFilters}
+              levelCounts={levelCounts}
+            />
+          </div>
 
           {isDetached ? (
             <div className="flex-shrink-0 ml-auto">
               <button
                 onClick={() => onReattach(config)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 ↴ Reattach to Main Window
               </button>
             </div>
           ) : streamTabs && (
-            <div className="flex-shrink-0 ml-auto">
+            <div className="flex-shrink-0 ml-auto max-w-full overflow-x-auto">
               {streamTabs}
             </div>
           )}
+        </div>
+      )}
+
+      {!isFullscreen && activeFilterChips.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {activeFilterChips.map(chip => (
+            <button
+              key={chip.key}
+              onClick={chip.onRemove}
+              className="inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-800 px-3 py-1 text-sm text-gray-200 hover:border-gray-500 hover:bg-gray-700 transition-colors"
+              title={`Remove ${chip.label}`}
+              aria-label={`Remove ${chip.label}`}
+            >
+              <span>{chip.label}</span>
+              <span className="text-gray-400">x</span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -344,7 +491,9 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
         return <div className={containerClasses}>
         <LogStatusBar
           isConnected={isConnected}
+          isConnecting={isConnecting}
           isPaused={isPaused}
+          connectionError={connectionError}
           filteredCount={filteredLogs.length}
           totalCount={logs.length}
           podCount={Object.keys(podColorMap).length}
@@ -373,10 +522,11 @@ export function StreamPanel({ streamId, initialConfig, streamTabs, isDetached, o
 
 
 StreamPanel.propTypes = {
-  streamId: PropTypes.string.isRequired,
+  streamId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   initialConfig: PropTypes.object,
   streamTabs: PropTypes.node,
   isDetached: PropTypes.bool,
   onReattach: PropTypes.func,
+  onStreamStateChange: PropTypes.func,
   isActive: PropTypes.bool
 };

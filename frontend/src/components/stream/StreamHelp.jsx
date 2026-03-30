@@ -4,11 +4,11 @@ import PropTypes from 'prop-types';
 /**
  * Help documentation for stream configuration
  */
-const StreamHelpComponent = ({ isVisible, onClose }) => {
+const StreamHelpComponent = ({ isVisible, onClose, panelId }) => {
   if (!isVisible) return null;
 
   return (
-    <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+    <div id={panelId} className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold text-green-400">📚 Configuration Help</h2>
         <button
@@ -263,7 +263,8 @@ const StreamHelpComponent = ({ isVisible, onClose }) => {
 
 StreamHelpComponent.propTypes = {
   isVisible: PropTypes.bool.isRequired,
-  onClose: PropTypes.func.isRequired
+  onClose: PropTypes.func.isRequired,
+  panelId: PropTypes.string
 };
 
 export const StreamHelp = memo(StreamHelpComponent);

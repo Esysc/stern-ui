@@ -70,19 +70,21 @@ export function LogViewer({
       {/* Floating Controls */}
       <div className="absolute top-2 right-2 z-10 flex gap-2">
         {/* Font Size Controls */}
-        <div className="flex gap-1 bg-gray-900/90 border border-gray-700 rounded px-2 py-1">
+        <div className="flex gap-1 bg-gray-900/90 border border-gray-700 rounded px-2 py-1 backdrop-blur-sm">
           <button
             onClick={() => onFontSizeChange?.(Math.max(10, fontSize - 2))}
-            className="text-gray-400 hover:text-white px-2"
+            className="text-gray-400 hover:text-white px-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             title="Decrease font size"
+            aria-label="Decrease log font size"
           >
             A-
           </button>
           <span className="text-gray-500 px-1">{fontSize}px</span>
           <button
             onClick={() => onFontSizeChange?.(Math.min(24, fontSize + 2))}
-            className="text-gray-400 hover:text-white px-2"
+            className="text-gray-400 hover:text-white px-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             title="Increase font size"
+            aria-label="Increase log font size"
           >
             A+
           </button>
@@ -95,8 +97,9 @@ export function LogViewer({
             showLineNumbers
               ? 'bg-blue-600 border-blue-500 text-white'
               : 'bg-gray-900/90 border-gray-700 text-gray-400 hover:text-white'
-          }`}
+          } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
           title={showLineNumbers ? 'Hide line numbers' : 'Show line numbers'}
+          aria-label={showLineNumbers ? 'Hide line numbers' : 'Show line numbers'}
         >
           #
         </button>
@@ -108,8 +111,9 @@ export function LogViewer({
             wrapText
               ? 'bg-blue-600 border-blue-500 text-white'
               : 'bg-gray-900/90 border-gray-700 text-gray-400 hover:text-white'
-          }`}
+          } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
           title={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+          aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
         >
           ↩️
         </button>
@@ -117,8 +121,9 @@ export function LogViewer({
         {/* Fullscreen Toggle */}
         <button
           onClick={onToggleFullscreen}
-          className="px-3 py-1 bg-gray-900/90 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+          className="px-3 py-1 bg-gray-900/90 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Enter fullscreen'}
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
         >
           {isFullscreen ? '🗗' : '🗖'}
         </button>
@@ -128,15 +133,17 @@ export function LogViewer({
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
         <button
           onClick={scrollToTop}
-          className="px-3 py-2 bg-gray-900/90 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+          className="px-3 py-2 bg-gray-900/90 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           title="Jump to top"
+          aria-label="Jump to top of logs"
         >
           ⬆️
         </button>
         <button
           onClick={scrollToBottom}
-          className="px-3 py-2 bg-gray-900/90 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+          className="px-3 py-2 bg-gray-900/90 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           title="Jump to bottom"
+          aria-label="Jump to bottom of logs"
         >
           ⬇️
         </button>
@@ -150,7 +157,8 @@ export function LogViewer({
     >
         {logs.length === 0 ? (
           <div className="text-gray-500 text-center py-8">
-            No logs to display. Check your configuration and start streaming.
+            <p>No logs to display yet.</p>
+            <p className="text-sm text-gray-600 mt-1">Update filters if needed, then click Connect to start streaming.</p>
           </div>
         ) : (
           logs.map((log, idx) => (

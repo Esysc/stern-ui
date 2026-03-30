@@ -1,11 +1,12 @@
 /**
  * Action buttons for controlling a stream
  */
-import { memo } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 
 const StreamActionsComponent = ({
   isConnected,
+  isConnecting,
   isPaused,
   autoScroll,
   bufferCount,
@@ -24,6 +25,7 @@ const StreamActionsComponent = ({
           <button
             onClick={onDisconnect}
             className="bg-red-600 hover:bg-red-700 px-6 py-2 rounded font-medium transition-colors"
+            disabled={isConnecting}
           >
             ⏹ Disconnect
           </button>
@@ -39,9 +41,11 @@ const StreamActionsComponent = ({
       ) : (
         <button
           onClick={onConnect}
-          className="bg-green-600 hover:bg-green-700 px-6 py-2 rounded font-medium transition-colors"
+          className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-6 py-2 rounded font-medium transition-colors"
+          disabled={isConnecting}
+          aria-busy={isConnecting}
         >
-          ▶ Connect
+          {isConnecting ? '⏳ Connecting...' : '▶ Connect'}
         </button>
       )}
       <button
@@ -67,31 +71,83 @@ const StreamActionsComponent = ({
 }
 
 function DownloadDropdown({ onDownloadText, onDownloadJson }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen]);
+
+  const handleDownloadText = () => {
+    onDownloadText();
+    setIsOpen(false);
+  };
+
+  const handleDownloadJson = () => {
+    onDownloadJson();
+    setIsOpen(false);
+  };
+
   return (
-    <div className="relative group">
-      <button className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded transition-colors">
+    <div ref={dropdownRef} className="relative">
+      <button
+        onClick={() => setIsOpen(prev => !prev)}
+        className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label="Download logs"
+      >
         ⬇ Download
       </button>
-      <div className="absolute top-full left-0 mt-1 bg-gray-700 rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+      <div
+        className={`absolute top-full left-0 mt-1 bg-gray-700 rounded shadow-lg transition-all z-10 min-w-[9rem] ${
+          isOpen ? 'opacity-100 visible' : 'opacity-0 invisible'
+        }`}
+        role="menu"
+        aria-label="Download options"
+      >
         <button
-          onClick={onDownloadText}
-          className="block w-full text-left px-4 py-2 hover:bg-gray-600 rounded-t"
+          onClick={handleDownloadText}
+          className="block w-full text-left px-4 py-2 hover:bg-gray-600 rounded-t focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          role="menuitem"
         >
           As Text
         </button>
         <button
-          onClick={onDownloadJson}
-          className="block w-full text-left px-4 py-2 hover:bg-gray-600 rounded-b"
+          onClick={handleDownloadJson}
+          className="block w-full text-left px-4 py-2 hover:bg-gray-600 rounded-b focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          role="menuitem"
         >
           As JSON
         </button>
       </div>
     </div>
   );
-};
+}
 
 StreamActionsComponent.propTypes = {
   isConnected: PropTypes.bool.isRequired,
+  isConnecting: PropTypes.bool,
   isPaused: PropTypes.bool.isRequired,
   autoScroll: PropTypes.bool.isRequired,
   bufferCount: PropTypes.number.isRequired,
