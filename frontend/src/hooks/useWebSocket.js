@@ -193,6 +193,7 @@ export function useWebSocket() {
     newWs.onopen = () => {
       debug('WebSocket connected');
       setIsConnecting(false);
+      setConnectionError('');
       setIsConnected(true);
       setLogs([]);
     };
@@ -220,6 +221,7 @@ export function useWebSocket() {
       debug('Disconnecting WebSocket');
       wsRef.current.close();
     }
+    setConnectionError('');
     setIsConnecting(false);
     setWs(null);
     setIsConnected(false);

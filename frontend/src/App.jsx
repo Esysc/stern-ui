@@ -3,6 +3,23 @@ import { Header, StreamTabs, StreamPanel } from './components';
 import { STORAGE_KEY } from './constants';
 import { clearAllSettings } from './utils/storage';
 
+function areRuntimeConfigsEqual(currentConfig = {}, nextConfig = {}) {
+  const currentKeys = Object.keys(currentConfig);
+  const nextKeys = Object.keys(nextConfig);
+
+  if (currentKeys.length !== nextKeys.length) {
+    return false;
+  }
+
+  for (const key of nextKeys) {
+    if (currentConfig[key] !== nextConfig[key]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function App() {
   // Check if we're in detached mode
   const isDetached = useMemo(() => {
@@ -33,7 +50,7 @@ function App() {
 
       const currentRuntime = stream.runtime || {};
       const sameConnection = currentRuntime.isConnected === isConnected;
-      const sameConfig = JSON.stringify(currentRuntime.config || {}) === JSON.stringify(config || {});
+      const sameConfig = areRuntimeConfigsEqual(currentRuntime.config, config);
 
       if (sameConnection && sameConfig) {
         return stream;

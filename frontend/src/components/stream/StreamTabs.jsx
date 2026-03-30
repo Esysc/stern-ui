@@ -29,7 +29,6 @@ export function StreamTabs({
       <button
         onClick={onAddStream}
         className="ml-2 px-3 py-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        aria-label="Add another stream"
       >
         + Add Stream
       </button>
@@ -39,10 +38,10 @@ export function StreamTabs({
 
 StreamTabs.propTypes = {
   streams: PropTypes.arrayOf(PropTypes.shape({
-    id: PropTypes.string.isRequired,
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
     name: PropTypes.string.isRequired
   })).isRequired,
-  activeStreamId: PropTypes.string.isRequired,
+  activeStreamId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   onSelectStream: PropTypes.func.isRequired,
   onAddStream: PropTypes.func.isRequired,
   onRemoveStream: PropTypes.func.isRequired,
@@ -108,7 +107,7 @@ function StreamTab({ stream, isActive, canRemove, onSelect, onRemove, onDetach }
 
 StreamTab.propTypes = {
   stream: PropTypes.shape({
-    id: PropTypes.string.isRequired,
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
     name: PropTypes.string.isRequired
   }).isRequired,
   isActive: PropTypes.bool.isRequired,
