@@ -9,9 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- add keyboard shortcuts panel for connect, disconnect, pause, clear, and filter reset actions
+- add active filter chips for quick visibility and one-click removal of applied filters
+- add explicit connecting and connection error feedback in the log status area
+
 ### Changed
 
+- improve stream detach behavior to preserve active runtime configuration and connection state in detached windows
+- improve toolbar and log viewer accessibility with clearer control labels, focus states, and responsive layout behavior
+- improve download actions to work reliably with click and keyboard interactions instead of hover-only behavior
+- improve log filtering workflow with a dedicated reset action and clearer empty-state guidance
+
 ### Fixed
+
+- fix detached stream windows opening in a disconnected state after detaching an active stream
+- fix popup-blocked detach attempts removing the source stream from the main window
+- fix stream tab runtime PropTypes mismatches for numeric stream ids
+- fix stale websocket error messages persisting after successful reconnect or manual disconnect
 
 ## [0.3.0] - 2026-01-08
 
