@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Header, StreamTabs, StreamPanel } from './components';
 import { STORAGE_KEY } from './constants';
 import { clearAllSettings } from './utils/storage';
@@ -26,6 +26,28 @@ function App() {
     return [{ id: 1, name: 'Stream 1' }];
   });
   const [activeStreamId, setActiveStreamId] = useState(1);
+
+  const handleStreamStateChange = useCallback(({ streamId, config, isConnected }) => {
+    setStreams(prev => prev.map(stream => {
+      if (stream.id !== streamId) return stream;
+
+      const currentRuntime = stream.runtime || {};
+      const sameConnection = currentRuntime.isConnected === isConnected;
+      const sameConfig = JSON.stringify(currentRuntime.config || {}) === JSON.stringify(config || {});
+
+      if (sameConnection && sameConfig) {
+        return stream;
+      }
+
+      return {
+        ...stream,
+        runtime: {
+          config,
+          isConnected
+        }
+      };
+    }));
+  }, []);
 
   // Listen for reattach messages from detached windows
   useEffect(() => {
@@ -90,7 +112,16 @@ function App() {
     // Get current config from localStorage using the same key format as storage.js
     const configKey = `${STORAGE_KEY}-${id}`;
     const configStr = localStorage.getItem(configKey);
-    const config = configStr ? JSON.parse(configStr) : {};
+    const persistedConfig = configStr ? JSON.parse(configStr) : {};
+    const runtimeConfig = stream.runtime?.config || {};
+    const isRuntimeConnected = stream.runtime?.isConnected === true;
+
+    // Prefer runtime config to keep the detached window in sync with active UI state.
+    const config = {
+      ...persistedConfig,
+      ...runtimeConfig,
+      wasConnected: isRuntimeConnected || persistedConfig.wasConnected === true
+    };
 
     // Build URL with config
     const params = new URLSearchParams();
@@ -102,10 +133,13 @@ function App() {
     const url = `${globalThis.location.origin}${globalThis.location.pathname}?${params.toString()}`;
     const newWindow = globalThis.open(url, '_blank', 'width=1200,height=800');
 
-    // Set window title (will be overridden by the detached window)
-    if (newWindow) {
-      newWindow.document.title = stream.name;
+    if (!newWindow) {
+      globalThis.alert('Popup blocked. Please allow popups for this site to detach streams.');
+      return;
     }
+
+    // Set window title (will be overridden by the detached window)
+    newWindow.document.title = stream.name;
 
     // If this is the last stream, create a new one before removing
     if (streams.length === 1) {
@@ -129,6 +163,7 @@ function App() {
             initialConfig={stream.config}
             isDetached={isDetached}
             onReattach={handleReattach}
+            onStreamStateChange={handleStreamStateChange}
             isActive={stream.id === activeStreamId}
             streamTabs={!isDetached && (
               <StreamTabs

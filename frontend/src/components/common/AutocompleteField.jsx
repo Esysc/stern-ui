@@ -108,6 +108,8 @@ function AutocompleteFieldComponent({
           <button
             type="button"
             className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+            aria-label={`Show suggestions for ${label}`}
+            title={`Show suggestions for ${label}`}
             onMouseDown={(e) => {
               e.preventDefault(); // Prevent input blur
               setShowSuggestions(true);

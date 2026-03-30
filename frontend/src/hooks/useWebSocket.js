@@ -112,6 +112,8 @@ export function useWebSocket() {
   const [ws, setWs] = useState(null);
   const [logs, setLogs] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionError, setConnectionError] = useState('');
   const [isPaused, setIsPaused] = useState(false);
   const pauseBufferRef = useRef([]);
   const isPausedRef = useRef(false);
@@ -167,6 +169,9 @@ export function useWebSocket() {
       wsRef.current.close();
     }
 
+    setConnectionError('');
+    setIsConnecting(true);
+
     // Store config and until time for filtering
     configRef.current = config;
     if (config.timeRangeMode === 'absolute' && config.untilTime) {
@@ -187,6 +192,7 @@ export function useWebSocket() {
 
     newWs.onopen = () => {
       debug('WebSocket connected');
+      setIsConnecting(false);
       setIsConnected(true);
       setLogs([]);
     };
@@ -195,11 +201,14 @@ export function useWebSocket() {
 
     newWs.onclose = () => {
       debug('WebSocket closed');
+      setIsConnecting(false);
       setIsConnected(false);
     };
 
     newWs.onerror = (error) => {
       debug('WebSocket error:', error);
+      setIsConnecting(false);
+      setConnectionError('Failed to connect. Check context, namespace, and query.');
       setIsConnected(false);
     };
 
@@ -211,6 +220,7 @@ export function useWebSocket() {
       debug('Disconnecting WebSocket');
       wsRef.current.close();
     }
+    setIsConnecting(false);
     setWs(null);
     setIsConnected(false);
   }, []);
@@ -235,6 +245,8 @@ export function useWebSocket() {
   return {
     logs,
     isConnected,
+    isConnecting,
+    connectionError,
     isPaused,
     connect,
     disconnect,

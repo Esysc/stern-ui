@@ -12,8 +12,11 @@ const LogFiltersComponent = ({
   onSearchChange,
   levelFilter,
   onLevelChange,
+  onResetFilters,
   levelCounts = {}
 }) => {
+  const hasActiveFilters = searchFilter.trim() !== '' || levelFilter !== 'all';
+
   return (
     <div className="flex gap-4 items-end">
       <InputField
@@ -36,6 +39,16 @@ const LogFiltersComponent = ({
         }))}
         className="w-48"
       />
+
+      <button
+        onClick={onResetFilters}
+        disabled={!hasActiveFilters}
+        className="h-10 px-3 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-sm transition-colors"
+        aria-label="Reset log filters"
+        title="Reset search and level filters"
+      >
+        Reset
+      </button>
     </div>
   );
 };
@@ -45,6 +58,7 @@ LogFiltersComponent.propTypes = {
   onSearchChange: PropTypes.func.isRequired,
   levelFilter: PropTypes.string.isRequired,
   onLevelChange: PropTypes.func.isRequired,
+  onResetFilters: PropTypes.func.isRequired,
   levelCounts: PropTypes.objectOf(PropTypes.number)
 };
 

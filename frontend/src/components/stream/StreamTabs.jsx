@@ -12,8 +12,8 @@ export function StreamTabs({
   onDetachStream
 }) {
   return (
-    <div className="flex items-center gap-1">
-      <div className="flex gap-1">
+    <div className="flex items-center gap-1 flex-wrap" role="tablist" aria-label="Stream tabs">
+      <div className="flex gap-1 flex-wrap">
         {streams.map(stream => (
           <StreamTab
             key={stream.id}
@@ -28,7 +28,8 @@ export function StreamTabs({
       </div>
       <button
         onClick={onAddStream}
-        className="ml-2 px-3 py-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+        className="ml-2 px-3 py-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        aria-label="Add another stream"
       >
         + Add Stream
       </button>
@@ -69,9 +70,10 @@ function StreamTab({ stream, isActive, canRemove, onSelect, onRemove, onDetach }
   return (
     <div
       role="tab"
-      tabIndex={0}
+      tabIndex={isActive ? 0 : -1}
       aria-selected={isActive}
-      className={`flex items-center gap-2 px-4 py-2 cursor-pointer border-b-2 transition-colors ${
+      aria-label={`Switch to ${stream.name}`}
+      className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
         isActive
           ? 'border-green-500 bg-gray-800 text-white'
           : 'border-transparent text-gray-400 hover:text-white hover:bg-gray-800/50'
@@ -81,16 +83,21 @@ function StreamTab({ stream, isActive, canRemove, onSelect, onRemove, onDetach }
     >
       <span>{stream.name}</span>
       <button
+        type="button"
         onClick={handleDetach}
         className="text-gray-500 hover:text-blue-400 text-xs"
         title="Detach to new window"
+        aria-label={`Detach ${stream.name} to a new window`}
       >
         ⧉
       </button>
       {canRemove && (
         <button
+          type="button"
           onClick={handleRemove}
           className="text-gray-500 hover:text-red-400 text-xs"
+          aria-label={`Close ${stream.name}`}
+          title={`Close ${stream.name}`}
         >
           ✕
         </button>

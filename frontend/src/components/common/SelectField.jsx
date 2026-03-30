@@ -72,6 +72,8 @@ function SelectFieldComponent({ label, value, onChange, onBlur, options, idPrefi
         <button
           type="button"
           className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+          aria-label={`Show options for ${label}`}
+          title={`Show options for ${label}`}
           onMouseDown={(e) => {
             e.preventDefault();
             if (showOptions) {
