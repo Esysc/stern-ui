@@ -38,6 +38,33 @@ describe('EventsPanel', () => {
     fireEvent.focus(screen.getByLabelText('Namespace'));
     await waitFor(() => expect(screen.getByText('kube-system')).toBeInTheDocument());
   });
+
+  it('opens an event detail on row click and closes it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      const isNamespaces = String(url).includes('/api/namespaces');
+      return Promise.resolve({
+        ok: true,
+        json: async () => (isNamespaces
+          ? []
+          : [{
+              time: '2026-01-01T00:00:00Z', type: 'Warning', reason: 'BackOff',
+              object: 'Pod/demo', namespace: 'default', source: 'kubelet', count: 5,
+              message: 'Back-off restarting failed container'
+            }])
+      });
+    });
+
+    render(<EventsPanel context="minikube" />);
+
+    await waitFor(() => expect(screen.getByText('BackOff')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('BackOff'));
+
+    await waitFor(() => expect(screen.getByText('kubelet')).toBeInTheDocument());
+    expect(screen.getAllByText('Back-off restarting failed container').length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close event detail' }));
+    expect(screen.queryByText('kubelet')).not.toBeInTheDocument();
+  });
 });
 
 describe('HealthPanel', () => {

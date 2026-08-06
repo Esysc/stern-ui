@@ -898,12 +898,15 @@ func getClusterEvents(c *gin.Context) {
 	}
 
 	type eventDTO struct {
-		Time    string `json:"time"`
-		Type    string `json:"type"`
-		Reason  string `json:"reason"`
-		Object  string `json:"object"`
-		Message string `json:"message"`
-		Count   int32  `json:"count"`
+		Time      string `json:"time"`
+		FirstSeen string `json:"firstSeen"`
+		Type      string `json:"type"`
+		Reason    string `json:"reason"`
+		Object    string `json:"object"`
+		Namespace string `json:"namespace"`
+		Source    string `json:"source"`
+		Count     int32  `json:"count"`
+		Message   string `json:"message"`
 	}
 
 	result := make([]eventDTO, 0, len(events.Items))
@@ -912,13 +915,17 @@ func getClusterEvents(c *gin.Context) {
 		if t.IsZero() {
 			t = e.EventTime.Time
 		}
+		first := e.FirstTimestamp.Time
 		result = append(result, eventDTO{
-			Time:    t.Format(time.RFC3339),
-			Type:    e.Type,
-			Reason:  e.Reason,
-			Object:  fmt.Sprintf("%s/%s", e.InvolvedObject.Kind, e.InvolvedObject.Name),
-			Message: e.Message,
-			Count:   e.Count,
+			Time:      t.Format(time.RFC3339),
+			FirstSeen: first.Format(time.RFC3339),
+			Type:      e.Type,
+			Reason:    e.Reason,
+			Object:    fmt.Sprintf("%s/%s", e.InvolvedObject.Kind, e.InvolvedObject.Name),
+			Namespace: e.Namespace,
+			Source:    e.Source.Component,
+			Count:     e.Count,
+			Message:   e.Message,
 		})
 	}
 
