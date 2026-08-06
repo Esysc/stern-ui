@@ -1,18 +1,23 @@
 import { STORAGE_KEY, DEFAULT_CONFIG } from '../constants';
 
 /**
- * Load config from localStorage for a specific stream
+ * Load all stream configs from localStorage
  */
-export function loadConfig(streamId) {
+export function loadAllConfigs() {
   try {
-    const saved = localStorage.getItem(`${STORAGE_KEY}-${streamId}`);
-    if (saved) {
-      return { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+    const configs = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(`${STORAGE_KEY}-stream-`)) continue;
+      const id = key.replace(`${STORAGE_KEY}-stream-`, '');
+      const saved = localStorage.getItem(key);
+      configs.push({ id, config: { ...DEFAULT_CONFIG, ...JSON.parse(saved) } });
     }
+    return configs;
   } catch (e) {
-    console.error('Failed to load config from storage:', e);
+    console.error('Failed to load configs from storage:', e);
+    return [];
   }
-  return { ...DEFAULT_CONFIG };
 }
 
 /**
@@ -20,20 +25,20 @@ export function loadConfig(streamId) {
  */
 export function saveConfig(streamId, config) {
   try {
-    localStorage.setItem(`${STORAGE_KEY}-${streamId}`, JSON.stringify(config));
+    localStorage.setItem(`${STORAGE_KEY}-stream-${streamId}`, JSON.stringify(config));
   } catch (e) {
     console.error('Failed to save config to storage:', e);
   }
 }
 
 /**
- * Clear config from localStorage for a specific stream
+ * Delete a stream config from localStorage
  */
-export function clearConfig(streamId) {
+export function deleteConfig(streamId) {
   try {
-    localStorage.removeItem(`${STORAGE_KEY}-${streamId}`);
+    localStorage.removeItem(`${STORAGE_KEY}-stream-${streamId}`);
   } catch (e) {
-    console.error('Failed to clear config from storage:', e);
+    console.error('Failed to delete config from storage:', e);
   }
 }
 

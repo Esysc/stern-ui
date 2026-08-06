@@ -14,24 +14,27 @@ describe('SelectField', () => {
     expect(screen.getByLabelText('Container State')).toBeInTheDocument();
   });
 
-  it('displays all options', () => {
+  it('displays all options when opened', () => {
     render(<SelectField label="State" value="all" onChange={() => {}} options={options} />);
+
+    fireEvent.focus(screen.getByLabelText('State'));
 
     expect(screen.getByRole('option', { name: 'All' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Running' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Waiting' })).toBeInTheDocument();
   });
 
-  it('selects the correct value', () => {
+  it('displays the selected option label', () => {
     render(<SelectField label="State" value="running" onChange={() => {}} options={options} />);
-    expect(screen.getByLabelText('State')).toHaveValue('running');
+    expect(screen.getByLabelText('State')).toHaveValue('Running');
   });
 
-  it('calls onChange when selection changes', () => {
+  it('calls onChange when an option is selected', () => {
     const handleChange = vi.fn();
     render(<SelectField label="State" value="all" onChange={handleChange} options={options} />);
 
-    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'waiting' } });
+    fireEvent.focus(screen.getByLabelText('State'));
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Waiting' }));
 
     expect(handleChange).toHaveBeenCalledWith('waiting');
   });

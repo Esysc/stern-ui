@@ -1,12 +1,13 @@
 import PropTypes from 'prop-types';
 import { memo } from 'react';
-
 /**
  * Basic input field component
  */
 function InputFieldComponent({ label, value, onChange, onBlur, placeholder, disabled, idPrefix, type = 'text', min, max, compact = false, helperText }) {
   const id = idPrefix ? `${idPrefix}-${label.toLowerCase().replaceAll(/\s+/g, '-')}` : label.toLowerCase().replaceAll(/\s+/g, '-');
-
+  const handleChange = (e) => {
+    onChange(e.target.value);
+  };
   return (
     <div>
       <label
@@ -20,7 +21,7 @@ function InputFieldComponent({ label, value, onChange, onBlur, placeholder, disa
         type={type}
         className={`bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 text-white placeholder-gray-500 ${compact ? 'w-full text-sm' : 'w-full'} ${disabled ? 'opacity-50' : ''}`}
         value={value}
-        onChange={onChange}
+        onChange={handleChange}
         onBlur={onBlur}
         placeholder={placeholder}
         disabled={disabled}
@@ -35,7 +36,6 @@ function InputFieldComponent({ label, value, onChange, onBlur, placeholder, disa
     </div>
   );
 }
-
 InputFieldComponent.propTypes = {
   label: PropTypes.string.isRequired,
   value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
@@ -50,10 +50,8 @@ InputFieldComponent.propTypes = {
   compact: PropTypes.bool,
   helperText: PropTypes.string,
 };
-
 InputFieldComponent.defaultProps = {
   placeholder: '',
   disabled: false,
 };
-
 export const InputField = memo(InputFieldComponent);

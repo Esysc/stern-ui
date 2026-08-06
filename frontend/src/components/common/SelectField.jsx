@@ -22,7 +22,7 @@ function SelectFieldComponent({ label, value, onChange, onBlur, options, idPrefi
   }, [options, value]);
 
   const handleSelect = (option) => {
-    onChange({ target: { value: option.value } });
+    onChange(option.value);
     setShowOptions(false);
     setSearchTerm('');
   };
@@ -68,6 +68,9 @@ function SelectFieldComponent({ label, value, onChange, onBlur, options, idPrefi
           onBlur={handleBlur}
           placeholder="Type to filter..."
           autoComplete="off"
+          role="combobox"
+          aria-expanded={showOptions}
+          aria-controls={`${id}-options`}
         />
         <button
           type="button"
@@ -92,25 +95,26 @@ function SelectFieldComponent({ label, value, onChange, onBlur, options, idPrefi
         </button>
       </div>
       {showOptions && filteredOptions.length > 0 && (
-        <div className="absolute z-20 w-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg max-h-48 overflow-y-auto">
+        <div
+          id={`${id}-options`}
+          role="listbox"
+          className="absolute z-20 w-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg max-h-48 overflow-y-auto"
+        >
           {filteredOptions.map((option) => (
-            <button
+            <div
               key={option.value}
-              type="button"
-              className={`w-full text-left px-3 py-2 hover:bg-gray-600 ${value === option.value ? 'bg-green-600 text-white' : 'text-gray-200'}`}
+              role="option"
+              aria-label={option.label}
+              aria-selected={value === option.value}
+              className={`w-full px-3 py-2 hover:bg-gray-600 ${value === option.value ? 'bg-green-600 text-white' : 'text-gray-200'}`}
               onMouseDown={(e) => {
                 e.preventDefault();
                 handleSelect(option);
               }}
             >
               {option.label}
-            </button>
+            </div>
           ))}
-        </div>
-      )}
-      {showOptions && filteredOptions.length === 0 && searchTerm && (
-        <div className="absolute z-20 w-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg px-3 py-2 text-gray-400">
-          No options match "{searchTerm}"
         </div>
       )}
     </div>
@@ -122,12 +126,10 @@ SelectFieldComponent.propTypes = {
   value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   onChange: PropTypes.func.isRequired,
   onBlur: PropTypes.func,
-  options: PropTypes.arrayOf(
-    PropTypes.shape({
-      value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
-      label: PropTypes.string.isRequired,
-    })
-  ).isRequired,
+  options: PropTypes.arrayOf(PropTypes.shape({
+    label: PropTypes.string.isRequired,
+    value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired
+  })).isRequired,
   idPrefix: PropTypes.string,
 };
 

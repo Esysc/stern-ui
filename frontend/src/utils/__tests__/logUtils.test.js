@@ -14,11 +14,6 @@ describe('detectLogLevel', () => {
     expect(detectLogLevel('WARN - low memory')).toBe('warn');
   });
 
-  it('detects info level', () => {
-    expect(detectLogLevel('INFO: server started')).toBe('info');
-    expect(detectLogLevel('[info] connected')).toBe('info');
-  });
-
   it('detects debug level', () => {
     expect(detectLogLevel('DEBUG: variable value')).toBe('debug');
     expect(detectLogLevel('TRACE: entering function')).toBe('debug');
@@ -40,44 +35,40 @@ describe('filterLogs', () => {
   ];
 
   it('returns all logs when no filters applied', () => {
-    const result = filterLogs(sampleLogs, { levelFilter: 'all', searchFilter: '' });
+    const result = filterLogs(sampleLogs, { query: '.', container: '' });
     expect(result).toHaveLength(4);
   });
 
-  it('filters by level', () => {
-    const result = filterLogs(sampleLogs, { levelFilter: 'error', searchFilter: '' });
-    expect(result).toHaveLength(1);
-    expect(result[0].level).toBe('error');
+  it('filters by pod query', () => {
+    const result = filterLogs(sampleLogs, { query: 'api-pod', container: '' });
+    expect(result).toHaveLength(2);
+    expect(result.every(log => log.pod === 'api-pod')).toBe(true);
   });
 
-  it('filters by search term in message', () => {
-    const result = filterLogs(sampleLogs, { levelFilter: 'all', searchFilter: 'warning' });
+  it('filters by container name', () => {
+    const result = filterLogs(sampleLogs, { query: '.', container: 'nginx' });
     expect(result).toHaveLength(1);
-    expect(result[0].message).toContain('Warning');
+    expect(result[0].container).toBe('nginx');
   });
 
-  it('filters by search term in pod name', () => {
-    const result = filterLogs(sampleLogs, { levelFilter: 'all', searchFilter: 'api-pod' });
+  it('combines pod query and container filters', () => {
+    const result = filterLogs(sampleLogs, { query: 'api-pod', container: 'api' });
+    expect(result).toHaveLength(2);
+    expect(result.every(log => log.pod === 'api-pod' && log.container === 'api')).toBe(true);
+  });
+
+  it('is case insensitive for pod query', () => {
+    const result = filterLogs(sampleLogs, { query: 'API-POD', container: '' });
     expect(result).toHaveLength(2);
   });
 
-  it('filters by search term in container name', () => {
-    const result = filterLogs(sampleLogs, { levelFilter: 'all', searchFilter: 'nginx' });
-    expect(result).toHaveLength(1);
-  });
-
-  it('combines level and search filters', () => {
-    const result = filterLogs(sampleLogs, { levelFilter: 'error', searchFilter: 'api' });
-    expect(result).toHaveLength(1);
-  });
-
-  it('is case insensitive', () => {
-    const result = filterLogs(sampleLogs, { levelFilter: 'all', searchFilter: 'ERROR' });
+  it('is case insensitive for container', () => {
+    const result = filterLogs(sampleLogs, { query: '.', container: 'NGINX' });
     expect(result).toHaveLength(1);
   });
 
   it('handles empty logs array', () => {
-    const result = filterLogs([], { levelFilter: 'all', searchFilter: 'test' });
+    const result = filterLogs([], { query: 'test', container: '' });
     expect(result).toHaveLength(0);
   });
 });

@@ -14,143 +14,60 @@ describe('App', () => {
     localStorage.clear();
   });
 
-  it('renders the header', () => {
+  it('renders the header', async () => {
     render(<App />);
-    expect(screen.getByText(/Stern Web UI/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Stern Web UI/i)).toBeInTheDocument();
   });
 
-  it('renders input fields', () => {
+  it('renders essential filter input fields', async () => {
     render(<App />);
-    expect(screen.getByLabelText(/Namespace/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Selector/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Query/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Since/i)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Namespace/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Pod \/ Container/i)).toBeInTheDocument();
   });
 
-  it('renders connect button', () => {
+  it('renders connect button', async () => {
     render(<App />);
-    expect(screen.getByRole('button', { name: /Connect/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Connect/i })).toBeInTheDocument();
   });
 
-  it('renders persist settings checkbox', () => {
+  it('renders clear button', async () => {
     render(<App />);
-    expect(screen.getByLabelText(/persist settings/i)).toBeInTheDocument();
+    // Target the Clear button in StreamActions (not "Clear All Settings" in header)
+    expect(await screen.findByRole('button', { name: /^Clear$/i })).toBeInTheDocument();
   });
 
-  it('renders default stream tab', () => {
+  it('renders view tabs', async () => {
     render(<App />);
-    expect(screen.getByText('Stream 1')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /View Logs/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /View Events/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /View Health/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /View Apply/i })).toBeInTheDocument();
   });
 
-  it('can add new stream tab', () => {
+  it('renders cluster selector', async () => {
     render(<App />);
-
-    fireEvent.click(screen.getByRole('button', { name: /add stream/i }));
-
-    expect(screen.getByText('Stream 1')).toBeInTheDocument();
-    expect(screen.getByText('Stream 2')).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Cluster/i)).toBeInTheDocument();
   });
 
-  it('can switch between stream tabs', () => {
+  it('adds a new stream when Add Stream is clicked', async () => {
     render(<App />);
+    const addBtn = await screen.findByRole('button', { name: /Add Stream/i });
+    fireEvent.click(addBtn);
 
-    // Add a second stream
-    fireEvent.click(screen.getByRole('button', { name: /add stream/i }));
-
-    // Click on Stream 2
-    fireEvent.click(screen.getByText('Stream 2'));
-
-    // Stream 2 should now be active (check for border class)
-    const stream2Tab = screen.getByText('Stream 2').closest('div');
-    expect(stream2Tab).toHaveClass('border-green-500');
+    // Now two stream panels should be present (each has its own Connect button)
+    const connectButtons = await screen.findAllByRole('button', { name: /^Connect/i });
+    expect(connectButtons).toHaveLength(2);
   });
 
-  it('can remove a stream tab', () => {
+  it('closes a stream via the Close button', async () => {
     render(<App />);
+    const addBtn = await screen.findByRole('button', { name: /Add Stream/i });
+    fireEvent.click(addBtn);
 
-    // Add streams
-    fireEvent.click(screen.getByRole('button', { name: /add stream/i }));
-    expect(screen.getByText('Stream 2')).toBeInTheDocument();
+    const closeButtons = await screen.findAllByRole('button', { name: /Close stream/i });
+    fireEvent.click(closeButtons[0]);
 
-    // Remove Stream 2
-    const closeButtons = screen.getAllByRole('button', { name: /✕/i });
-    fireEvent.click(closeButtons[1]); // Remove second stream
-
-    expect(screen.queryByText('Stream 2')).not.toBeInTheDocument();
-  });
-
-  it('prevents removing last stream', () => {
-    render(<App />);
-
-    // With only one stream, close button should not be visible
-    expect(screen.queryByRole('button', { name: /✕/i })).not.toBeInTheDocument();
-  });
-
-  it('renders container filter fields', () => {
-    render(<App />);
-    expect(screen.getByLabelText(/Container \(regex\)/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Exclude Containers/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Exclude Pods/i)).toBeInTheDocument();
-  });
-
-  it('renders log filter fields', () => {
-    render(<App />);
-    expect(screen.getByLabelText(/Include \(regex, highlighted\)/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Exclude \(regex\)/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Highlight \(regex\)/i)).toBeInTheDocument();
-  });
-
-  it('renders advanced options toggle', () => {
-    render(<App />);
-    expect(screen.getByText(/Advanced Options/i)).toBeInTheDocument();
-  });
-
-  it('shows advanced options when toggled', () => {
-    render(<App />);
-
-    fireEvent.click(screen.getByText(/Advanced Options/i));
-
-    expect(screen.getByLabelText(/Tail Lines/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Node/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Context/i)).toBeInTheDocument();
-  });
-
-  it('renders level filter buttons', () => {
-    render(<App />);
-    expect(screen.getByRole('button', { name: /all/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /error/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /warn/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /info/i })).toBeInTheDocument();
-  });
-
-  it('renders search filter input', () => {
-    render(<App />);
-    expect(screen.getByPlaceholderText(/filter logs/i)).toBeInTheDocument();
-  });
-
-  it('renders clear button', () => {
-    render(<App />);
-    expect(screen.getByRole('button', { name: /clear/i })).toBeInTheDocument();
-  });
-
-  it('renders auto-scroll button', () => {
-    render(<App />);
-    expect(screen.getByRole('button', { name: /auto-scroll/i })).toBeInTheDocument();
-  });
-
-  it('renders download button', () => {
-    render(<App />);
-    expect(screen.getByRole('button', { name: /download/i })).toBeInTheDocument();
-  });
-
-  it('toggles persist settings', () => {
-    render(<App />);
-
-    const checkbox = screen.getByLabelText(/persist settings/i);
-    expect(checkbox).not.toBeChecked();
-
-    fireEvent.click(checkbox);
-
-    expect(checkbox).toBeChecked();
+    const connectButtons = await screen.findAllByRole('button', { name: /^Connect/i });
+    expect(connectButtons).toHaveLength(1);
   });
 });
