@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"text/template"
@@ -21,6 +22,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	stern "github.com/stern/stern/stern"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -636,6 +639,17 @@ func streamLogs(c *gin.Context) {
 }
 
 func main() {
+	r := newRouter()
+
+	fmt.Println("Stern Web UI running on :8080")
+	fmt.Println("Open http://localhost:8080 in your browser")
+	if err := r.Run(":8080"); err != nil {
+		panic(err)
+	}
+}
+
+// newRouter builds the gin engine with all routes and the SPA fallback.
+func newRouter() *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/ws/logs", streamLogs)
@@ -647,6 +661,11 @@ func main() {
 	r.GET("/api/contexts", getContexts)
 	r.GET("/api/nodes", getNodes)
 	r.GET("/api/pod-metadata", getPodMetadata)
+
+	// API endpoints for cluster management
+	r.GET("/api/clusters/events", getClusterEvents)
+	r.GET("/api/clusters/health", getClusterHealth)
+	r.POST("/api/clusters/apply", applyManifest)
 
 	// Serve embedded static files from frontend/dist
 	distFS, err := fs.Sub(frontendFS, "frontend/dist")
@@ -673,6 +692,10 @@ func main() {
 
 	// Serve index.html for all other routes (SPA fallback)
 	r.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/ws/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
 		data, err := fs.ReadFile(distFS, "index.html")
 		if err != nil {
 			c.Status(http.StatusNotFound)
@@ -681,11 +704,7 @@ func main() {
 		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	})
 
-	fmt.Println("Stern Web UI running on :8080")
-	fmt.Println("Open http://localhost:8080 in your browser")
-	if err := r.Run(":8080"); err != nil {
-		panic(err)
-	}
+	return r
 }
 
 // getNamespaces returns list of kubernetes namespaces
@@ -857,4 +876,214 @@ func getPodMetadata(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"creationTime": creationTime,
 	})
+}
+
+// getClusterEvents returns kubernetes events for a context, newest first
+func getClusterEvents(c *gin.Context) {
+	ctxName := c.Query("context")
+	namespace := c.Query("namespace")
+
+	clientset, _, err := createKubeClient(ctxName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	events, err := clientset.CoreV1().Events(namespace).List(c.Request.Context(), metav1.ListOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	type eventDTO struct {
+		Time    string `json:"time"`
+		Type    string `json:"type"`
+		Reason  string `json:"reason"`
+		Object  string `json:"object"`
+		Message string `json:"message"`
+		Count   int32  `json:"count"`
+	}
+
+	result := make([]eventDTO, 0, len(events.Items))
+	for _, e := range events.Items {
+		t := e.LastTimestamp.Time
+		if t.IsZero() {
+			t = e.EventTime.Time
+		}
+		result = append(result, eventDTO{
+			Time:    t.Format(time.RFC3339),
+			Type:    e.Type,
+			Reason:  e.Reason,
+			Object:  fmt.Sprintf("%s/%s", e.InvolvedObject.Kind, e.InvolvedObject.Name),
+			Message: e.Message,
+			Count:   e.Count,
+		})
+	}
+
+	sort.SliceStable(result, func(i, j int) bool { return result[i].Time > result[j].Time })
+	c.JSON(http.StatusOK, result)
+}
+
+func nodeReady(node corev1.Node) bool {
+	for _, cond := range node.Status.Conditions {
+		if cond.Type == corev1.NodeReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func podIssueReason(pod corev1.Pod) string {
+	if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodPending {
+		return string(pod.Status.Phase)
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			return cs.State.Waiting.Reason
+		}
+		if cs.LastTerminationState.Terminated != nil && cs.LastTerminationState.Terminated.Reason != "" {
+			return cs.LastTerminationState.Terminated.Reason
+		}
+	}
+	return ""
+}
+
+// getClusterHealth returns node status and pod issues for a context
+func getClusterHealth(c *gin.Context) {
+	ctxName := c.Query("context")
+	namespace := c.Query("namespace")
+
+	clientset, _, err := createKubeClient(ctxName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+	nodes, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	pods, err := clientset.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// If a namespace is specified, filter pods to that namespace
+	if namespace != "" {
+		podItems := pods.Items
+		filtered := make([]corev1.Pod, 0, len(podItems))
+		for _, p := range podItems {
+			if p.Namespace == namespace {
+				filtered = append(filtered, p)
+			}
+		}
+		pods.Items = filtered
+	}
+
+	type nodeDTO struct {
+		Name    string `json:"name"`
+		Ready   bool   `json:"ready"`
+		CPU     string `json:"cpu"`
+		Memory  string `json:"memory"`
+		Version string `json:"version"`
+	}
+	nodeList := make([]nodeDTO, 0, len(nodes.Items))
+	for _, n := range nodes.Items {
+		nodeList = append(nodeList, nodeDTO{
+			Name:    n.Name,
+			Ready:   nodeReady(n),
+			CPU:     n.Status.Capacity.Cpu().String(),
+			Memory:  n.Status.Capacity.Memory().String(),
+			Version: n.Status.NodeInfo.KubeletVersion,
+		})
+	}
+
+	type issueDTO struct {
+		Namespace string `json:"namespace"`
+		Name      string `json:"name"`
+		Reason    string `json:"reason"`
+		Restarts  int32  `json:"restarts"`
+		Age       string `json:"age"`
+	}
+	var issues []issueDTO
+	podSummary := map[string]int{}
+	for _, p := range pods.Items {
+		podSummary[string(p.Status.Phase)]++
+		if reason := podIssueReason(p); reason != "" {
+			restarts := int32(0)
+			for _, cs := range p.Status.ContainerStatuses {
+				restarts += cs.RestartCount
+			}
+			issues = append(issues, issueDTO{
+				Namespace: p.Namespace,
+				Name:      p.Name,
+				Reason:    reason,
+				Restarts:  restarts,
+				Age:       time.Since(p.CreationTimestamp.Time).Round(time.Minute).String(),
+			})
+		}
+	}
+	// ponytail: capped at 200, oldest issues are dropped if the cluster has more
+	if len(issues) > 200 {
+		issues = issues[:200]
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"nodes":      nodeList,
+		"podSummary": podSummary,
+		"issues":     issues,
+	})
+}
+
+const maxYAMLBytes = 2 * 1024 * 1024 // 2 MB cap
+
+// applyManifest applies or deletes a YAML manifest against a context via kubectl
+func applyManifest(c *gin.Context) {
+	ctxName := c.Query("context")
+
+	var req struct {
+		Verb string `json:"verb"`
+		YAML string `json:"yaml"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body: " + err.Error()})
+		return
+	}
+
+	verb := strings.TrimSpace(req.Verb)
+	if verb == "" {
+		verb = "apply"
+	}
+	if verb != "apply" && verb != "delete" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "verb must be 'apply' or 'delete'"})
+		return
+	}
+
+	if len(req.YAML) > maxYAMLBytes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("yaml too large: %d bytes (max %d)", len(req.YAML), maxYAMLBytes)})
+		return
+	}
+
+	// Basic YAML sanity: must start with apiVersion, kind, or be a multi-doc
+	trimmed := strings.TrimSpace(req.YAML)
+	if trimmed == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "yaml is empty"})
+		return
+	}
+	if !strings.HasPrefix(trimmed, "apiVersion") && !strings.Contains(trimmed, "---") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "yaml must start with apiVersion or be a multi-document (---)"})
+		return
+	}
+
+	cmd := exec.Command("kubectl", "--context", ctxName, verb, "-f", "-")
+	cmd.Stdin = strings.NewReader(req.YAML)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "output": string(output)})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"output": string(output)})
 }
