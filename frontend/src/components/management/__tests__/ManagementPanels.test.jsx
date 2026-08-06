@@ -99,6 +99,36 @@ describe('ResourcesPanel', () => {
 
     expect(screen.queryByLabelText('Namespace')).not.toBeInTheDocument();
   });
+
+  it('opens a resource detail on row click and closes it', async () => {
+    const mockFetch = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      const u = String(url);
+      if (u.includes('/api/namespaces')) {
+        return Promise.resolve({ ok: true, json: async () => ['default'] });
+      }
+      if (u.includes('/api/clusters/resource-detail')) {
+        return Promise.resolve({ ok: true, json: async () => ({ kind: 'configmaps', name: 'cm-a', yaml: 'apiVersion: v1\nkind: ConfigMap\ndata:\n  key: value' }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ kind: 'configmaps', items: [{ name: 'cm-a', namespace: 'default', created: new Date().toISOString() }] })
+      });
+    });
+
+    render(<ResourcesPanel context="minikube" />);
+
+    await waitFor(() => expect(screen.getByText('cm-a')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('cm-a'));
+
+    await waitFor(() => expect(screen.getByText(/kind: ConfigMap/)).toBeInTheDocument());
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/clusters/resource-detail?'),
+      expect.anything()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close resource detail' }));
+    expect(screen.queryByText(/kind: ConfigMap/)).not.toBeInTheDocument();
+  });
 });
 
 describe('ApplyPanel', () => {

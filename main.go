@@ -667,6 +667,7 @@ func newRouter() *gin.Engine {
 	r.GET("/api/clusters/health", getClusterHealth)
 	r.POST("/api/clusters/apply", applyManifest)
 	r.GET("/api/clusters/resources", getClusterResources)
+	r.GET("/api/clusters/resource-detail", getResourceDetail)
 
 	// Serve embedded static files from frontend/dist
 	distFS, err := fs.Sub(frontendFS, "frontend/dist")
@@ -1161,4 +1162,36 @@ func getClusterResources(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"kind": kind, "items": items})
+}
+
+// getResourceDetail returns the full YAML of a single whitelisted resource
+func getResourceDetail(c *gin.Context) {
+	ctxName := c.Query("context")
+	kind := strings.ToLower(strings.TrimSpace(c.Query("kind")))
+	name := strings.TrimSpace(c.Query("name"))
+	namespace := strings.TrimSpace(c.Query("namespace"))
+
+	resource, ok := resourceWhitelist[kind]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported resource kind %q", kind)})
+		return
+	}
+	if name == "" || strings.HasPrefix(name, "-") || strings.ContainsAny(name, " \t\n") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource name"})
+		return
+	}
+
+	args := []string{"--context", ctxName, "get", resource, name, "-o", "yaml"}
+	if namespace != "" && !clusterScopedResources[kind] {
+		args = append(args, "-n", namespace)
+	}
+
+	cmd := exec.Command("kubectl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": string(output)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"kind": kind, "name": name, "yaml": string(output)})
 }

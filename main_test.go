@@ -240,6 +240,17 @@ func TestResourcesRejectsUnknownKind(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// TestResourceDetailRejectsBadName verifies resource names are validated
+func TestResourceDetailRejectsBadName(t *testing.T) {
+	r := setupRouter()
+
+	req, _ := http.NewRequest("GET", "/api/clusters/resource-detail?context=minikube&kind=configmaps&name=-f", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 // TestCORSUpgrader tests that the WebSocket upgrader allows all origins
 func TestCORSUpgrader(t *testing.T) {
 	// Verify the upgrader is configured to allow all origins
