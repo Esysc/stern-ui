@@ -3,30 +3,71 @@ applyTo: '**'
 ---
 # Unit Test MCP
 
-These rules govern **unit test** workflows only (Jest, Vitest, pytest, dotnet test, and similar unit/component test frameworks). They do NOT apply to end-to-end, integration, or scenario testing tools such as Playwright, Cypress, Selenium, or similar — leave those workflows unchanged.
+## When these rules apply
+
+You must follow these rules whenever the user's request involves **unit or component tests** — writing, improving, running, debugging, or measuring coverage. This covers JavaScript/TypeScript (Jest, Vitest, Mocha, Jasmine, etc.), Python (pytest, unittest), .NET (xUnit, NUnit, MSTest), and any similar in-process test framework.
+
+These rules do **NOT** apply to end-to-end, or scenario testing tools such as Playwright, Cypress, Selenium, or similar — leave those workflows unchanged.
 
 ## CRITICAL — Always use MCP tools
 
-**NEVER** run test commands in a terminal (`jest`, `pytest`, `vitest`, `dotnet test`, `npm test`, etc.). Before calling `run_in_terminal` with any test command, **STOP** and use the MCP `run_tests` tool instead. No exceptions — not even for "quick validation". If `run_tests` is unavailable, **STOP** and ask the user to start the Unit Test MCP server — do not fall back to terminal execution.
+**NEVER** run test commands in a terminal — including `jest`, `pytest`, `vitest`, `dotnet test`, `npm test`, `npm run test`, `yarn test`, `pnpm test`, `npx jest`, or any variant. This applies to chained pipelines too (e.g. `npm run lint && npm test`, `npm run ci`, `npm run validate`). Before calling `run_in_terminal` with any test command, **STOP** and use the MCP #tool:unittest-mcp `run_tests` tool instead. No exceptions — not even for "quick validation", and not even when the workspace IS the unittest-mcp server itself or a related project (dogfooding is mandatory). If `run_tests` is unavailable, **STOP** and ask the user to start the Unit Test MCP server — do not fall back to terminal execution.
 
-**NEVER** manually read source files and write tests without calling `generate_test` first. Do not skip MCP tools because you think you can do it faster. The MCP tools are mandatory for all test workflows.
+**Default validation step.** After editing test code OR source code that has tests, your default next action for "did this work?" is `run_tests` — not `npm test`, not `npm run ci`, not `npm run validate`. Lint and compile (`get_errors` or `npm run lint` / `npm run compile`) come before; tests come from `run_tests`.
+
+**Coverage validation means `run_tests`, not `inspect_coverage`.** If you need to know whether the current code passes tests with coverage, call `run_tests` with `include_coverage=true`. Do **not** call `inspect_coverage` as a substitute for running tests; it only reads whatever coverage artifacts already exist and may be stale. Use `inspect_coverage` only when the user explicitly asks to inspect existing coverage artifacts, or after a fresh `run_tests(include_coverage=true)` result needs uncovered-line detail.
+
+**NEVER** manually read source files and write tests without calling #tool:unittest-mcp `generate_test` first. Do not skip MCP tools because you think you can do it faster. The MCP tools are mandatory for all test workflows.
+
+## CRITICAL — Process multiple files ONE AT A TIME
+
+When the user asks for tests on **multiple files** (e.g., "generate tests for these files" with several attachments, or "add tests for this folder"), process files **sequentially, one at a time**. Never issue parallel `generate_test` calls for multiple files in the same turn.
+
+**Determine the file list first:**
+- If the user attached or named specific files → use that list directly, in the order provided.
+- If the user asked about a folder → call `generate_tests_batch` first to get the prioritized list, then process the returned files in the order given. If the list is large (more than ~5 files), briefly report the plan and ask the user to confirm scope before starting.
+
+**For each file in the list, complete this full cycle BEFORE moving to the next file:**
+
+1. Call `generate_test` for **this one file**
+2. Read the source file
+3. Write the test file. **The very first line must be the AI attribution comment** (see "AI attribution comment" rule below). Write this comment line *before* any imports or other code.
+4. Run `get_errors` on the test file and fix every lint/compile error
+5. Call `run_tests` with `include_coverage=true` — tests must pass
+6. Meet the coverage target (see Coverage improvement loop)
+7. **Only now** move to the next file and repeat from step 1
+
+If you catch yourself about to call `generate_test` a second time before step 6 has completed for the previous file, **STOP** and finish the previous file first. This applies even when the files are structurally similar — every file gets its own full cycle.
 
 ## MCP tools
 
 | Tool | When to use |
 |------|-------------|
-| `run_tests` | Execute tests (Jest, Vitest, pytest, .NET, custom). Set `include_coverage=true` to measure coverage. |
-| `generate_test` | Get guidance for creating/improving tests for a **single** source file. **Must be called first** — never skip it. |
-| `generate_tests_batch` | Scan a **folder** to find source files that need tests. |
-| `inspect_coverage` | Read existing coverage artifacts without re-running tests. Pass `source_file` for per-file detail (uncovered lines/branches). |
-| `find_test_files` | Discover test files in a directory. |
+| #tool:unittest-mcp `run_tests` | Execute tests (Jest, Vitest, pytest, .NET, custom). Set `include_coverage=true` to run tests and validate current coverage. |
+| #tool:unittest-mcp `generate_test` | Get guidance for creating/improving tests for a **single** source file. **Must be called first** — never skip it. |
+| #tool:unittest-mcp `generate_tests_batch` | Scan a **folder** to find source files that need tests. |
+| #tool:unittest-mcp `inspect_coverage` | Read existing coverage artifacts without re-running tests. Never use as validation for current changes. Pass `source_file` for per-file detail only after fresh coverage exists or when explicitly inspecting existing artifacts. |
+| #tool:unittest-mcp `find_test_files` | Discover test files in a directory. |
 
 ## Rules
 
 1. **Do NOT modify source code** — only create or update test files. If source code changes seem needed, ask the user first.
 2. **Preserve existing assertions** — only add or refine, never remove.
 3. **`generate_test` is mandatory** for every file's test creation/improvement. Do not skip it for speed, convenience, or because you can write tests directly. If it is unavailable (MCP server not started), **STOP** and ask the user to enable Unit Test MCP tools and reload VS Code. Do not fall back to manual test authoring.
-4. **AI attribution comment** — Every test file created or improved by this workflow **must** include `Generated by AI (UnitTest MCP)` as a comment on the **first line** of the file. If improving an existing file that already has this comment, keep it. If it is missing, add it.
+4. **AI attribution comment** — Every test file created or improved by this workflow **must** have the exact literal text `Generated by AI (UnitTest MCP)` as a comment on **line 1** (before any imports, directives, shebangs, or other content). Use the correct comment syntax for the language:
+
+   | Language | First line |
+   |----------|-----------|
+   | JavaScript / TypeScript / Jest / Vitest | `// Generated by AI (UnitTest MCP)` |
+   | Python / pytest | `# Generated by AI (UnitTest MCP)` |
+   | C# / .NET | `// Generated by AI (UnitTest MCP)` |
+   | Other | Use that language's line-comment syntax with the exact text |
+
+   Rules:
+   - The phrase must appear **verbatim** — do not paraphrase, translate, expand, or add version numbers.
+   - If creating a new test file: write this comment **first**, before any imports.
+   - If improving an existing test file that already has this comment: keep it exactly as-is.
+   - If improving an existing test file without this comment: **add it** on line 1.
 5. **Repo instructions override framework defaults** — When project-specific repo instruction files (`.github/instructions/*.md`) conflict with the generic framework guidance returned by `generate_test`, **always follow the repo instructions**. They represent intentional project decisions.
 
 ## Workflow
@@ -34,22 +75,13 @@ These rules govern **unit test** workflows only (Jest, Vitest, pytest, dotnet te
 ### 1. Determine the intent
 
 - **Run tests:** Call `run_tests` immediately (see Execution Rules below for parameters).
-- **Run tests + inspect coverage:** Call `run_tests` with `include_coverage=true`, then call `inspect_coverage` with the same `root_dir`.
+- **Run tests + coverage / validate coverage:** Call `run_tests` with `include_coverage=true`. This is the only tool that validates the current code by executing tests.
+- **Run tests + inspect coverage gaps:** Call `run_tests` with `include_coverage=true`, then call `inspect_coverage` with the same `root_dir` only if you need uncovered-line/branch detail from that fresh run.
 - **Run tests with coverage (no explicit inspect request):** Call `run_tests` with `include_coverage=true`. If `coverage.met` is `false`, call `inspect_coverage` automatically. Do not offer coverage work as optional when a coverage target applies.
 - **Create tests for a single file:** Call `generate_test` **immediately as your first action**. Do NOT read the source or test file first (exception: Python — brief `file_search` to check test folder layout is OK). Detection: request mentions a specific file with extension (e.g., `user.ts`, `service.py`).
 - **Improve an existing test file:** Call `generate_test` with both `source_file_path` and `test_file_path`. Do NOT read the test file before calling. Apply additive improvements only.
-- **Create tests for a folder/multiple files:** Call `generate_tests_batch` first, then process files **one at a time** using this strict cycle:
-
-  **For EACH file (do NOT batch all generate_test calls together):**
-  1. Call `generate_test` for this file
-  2. Read the source file
-  3. Create or update **a dedicated test file for this source file** (one test file per source file — do not combine tests for multiple source files into a single test file)
-  4. Run `get_errors` and fix any issues
-  5. Run tests via `run_tests` — tests **must pass** before moving on
-  6. **Only then** move to the next file and repeat from step 1
-
-  Do NOT call `generate_test` for all files first and then write all tests afterward. Each file must complete its full cycle before starting the next.
-- **Inspect coverage only:** Call `inspect_coverage` immediately. Do not re-run tests.
+- **Create tests for a folder/multiple files:** See the **"CRITICAL — Process multiple files ONE AT A TIME"** section at the top of this document. For folder requests, call `generate_tests_batch` first to discover the file list, then process each file sequentially through its full cycle before starting the next.
+- **Inspect existing coverage only:** Call `inspect_coverage` immediately only when the user explicitly asks to read existing coverage artifacts or coverage has already been generated in the current workflow. Do not use it to answer whether current tests pass.
 
 ### 2. Framework detection
 
@@ -67,10 +99,10 @@ Use the repo's existing test location conventions (`__tests__`, `tests/`, coloca
 `generate_test` returns guidance, not finished code — do **not** paste its raw output back to the user. You must:
 1. Read the source file to understand logic, inputs, and expected outputs.
 2. Synthesize concrete test code from the guidance.
-3. Create or update the test file (additive edits only if it exists). Ensure the **first line** is a `Generated by AI (UnitTest MCP)` comment (see Rule 4).
+3. Create or update the test file. **Line 1 must be the AI attribution comment** — see Rule 4 for the exact text and per-language syntax. This is a required acceptance criterion, not an optional nicety.
 4. Run `get_errors` and iteratively fix **all** lint/compile errors until none remain. Do this **before** proceeding.
 5. Run tests via `run_tests` with `include_coverage=true` and follow the coverage improvement loop (Section 5) until target coverage is met for the requested scope.
-6. Do **not** end with “Want me to add coverage-focused tests?” when coverage is below target — coverage completion is required before reporting done.
+6. Do **not** end with "Want me to add coverage-focused tests?" when coverage is below target — coverage completion is required before reporting done.
 
 **Path heuristics:** To find the test file from source, examine the repo's existing test structure (`__tests__`, `tests/`, colocated). To find the source from a test file, remove `.test.`/`.spec.`, move out of `__tests__` (JS/TS), `tests/` (Python), or remove `Tests` suffix (C#).
 
@@ -89,7 +121,7 @@ Use the repo's existing test location conventions (`__tests__`, `tests/`, coloca
 
 Do NOT report task completion until coverage for the requested scope meets the configured target (from MCP settings/tool response).
 
-**Important:** When testing a single file, `coverage.met` may report `false` because it can reflect repo-wide coverage. In that case, use per-file coverage for the target source file and compare it to the configured target percentage. Always pass `source_file` when calling `inspect_coverage` for a single-file test run to get per-file detail.
+**Important:** When testing a single file, start with `run_tests` using `include_coverage=true`, `scope='file'`, and an explicit `test_pattern` whenever possible. If the result still needs uncovered-line detail, then call `inspect_coverage` with `source_file` for that same source file. Do not call `inspect_coverage` first when validating current changes.
 
 ```
 REPEAT (max 5 iterations):
@@ -110,7 +142,8 @@ REPEAT (max 5 iterations):
 
 ### 6. `inspect_coverage` rules
 
-- Use to read existing artifacts — do NOT re-run tests just to see coverage.
+- Use to read existing artifacts only — it does not execute tests and must not be used as a validation step for current changes.
+- If the task is to run tests, check whether tests pass, validate coverage, or verify a recent edit, call `run_tests` first. Use `inspect_coverage` only after fresh coverage exists or when explicitly inspecting pre-existing artifacts.
 - Always pass `root_dir` and `framework`.
 - **Per-file detail:** Pass `source_file` (e.g., `source_file="src/utils.ts"`) to get uncovered line numbers and branch locations for a specific file. Without `source_file`, returns repo-wide per-file summary percentages.
 - **Coverage improvement workflow:** After `run_tests` with `include_coverage=true`, call `inspect_coverage` with `source_file` set to the source file you're improving. Read the source at the returned `uncoveredLines` to understand which paths need tests.
