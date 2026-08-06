@@ -22,6 +22,8 @@ A modern web interface for [stern](https://github.com/stern/stern), the multi-po
 
 ## Screenshots
 
+<img src="docs/demo.gif" alt="Stern Web UI demo" width="1000" />
+
 <img width="2514" height="1022" alt="image" src="https://github.com/user-attachments/assets/3bd6e256-1416-4b64-b49d-6bab0fb8f448" />
 
 
