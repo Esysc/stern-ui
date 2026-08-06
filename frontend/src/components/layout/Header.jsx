@@ -4,6 +4,7 @@ const VIEWS = [
   { id: 'logs', label: 'Logs' },
   { id: 'events', label: 'Events' },
   { id: 'health', label: 'Health' },
+  { id: 'resources', label: 'Resources' },
   { id: 'apply', label: 'Apply' }
 ];
 

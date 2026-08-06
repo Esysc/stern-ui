@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header, StreamPanel } from './components';
-import { EventsPanel, HealthPanel, ApplyPanel } from './components/management';
+import { EventsPanel, HealthPanel, ApplyPanel, ResourcesPanel } from './components/management';
 import { clearAllSettings, deleteConfig, loadAllConfigs } from './utils/storage';
 import { getApiBase } from './utils/helpers';
 
@@ -86,6 +86,7 @@ function App() {
       ))}
       {view === 'events' && <EventsPanel context={context} />}
       {view === 'health' && <HealthPanel context={context} />}
+      {view === 'resources' && <ResourcesPanel context={context} />}
       {view === 'apply' && <ApplyPanel context={context} />}
     </div>
   );

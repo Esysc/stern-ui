@@ -229,6 +229,17 @@ func TestApplyManifestRejectsBadVerb(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// TestResourcesRejectsUnknownKind verifies the resource browser only accepts whitelisted kinds
+func TestResourcesRejectsUnknownKind(t *testing.T) {
+	r := setupRouter()
+
+	req, _ := http.NewRequest("GET", "/api/clusters/resources?context=minikube&kind=deployments.replicasets", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 // TestCORSUpgrader tests that the WebSocket upgrader allows all origins
 func TestCORSUpgrader(t *testing.T) {
 	// Verify the upgrader is configured to allow all origins

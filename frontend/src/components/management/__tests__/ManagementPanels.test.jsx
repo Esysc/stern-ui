@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EventsPanel, HealthPanel, ApplyPanel } from '../index';
+import { EventsPanel, HealthPanel, ApplyPanel, ResourcesPanel } from '../index';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -56,6 +56,48 @@ describe('HealthPanel', () => {
     await waitFor(() => expect(screen.getByText('node-1')).toBeInTheDocument());
     expect(screen.getByText('CrashLoopBackOff')).toBeInTheDocument();
     expect(screen.getByText('bad-pod')).toBeInTheDocument();
+  });
+});
+
+describe('ResourcesPanel', () => {
+  it('lists resources for the selected kind and filters by namespace', async () => {
+    const mockFetch = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      const u = String(url);
+      if (u.includes('/api/namespaces')) {
+        return Promise.resolve({ ok: true, json: async () => ['default'] });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          kind: 'configmaps',
+          items: [
+            { name: 'cm-a', namespace: 'default', created: new Date().toISOString() },
+            { name: 'cm-b', namespace: 'kube-system', created: '2026-01-01T00:00:00Z' }
+          ]
+        })
+      });
+    });
+
+    render(<ResourcesPanel context="minikube" />);
+
+    await waitFor(() => expect(screen.getByText('cm-a')).toBeInTheDocument());
+    expect(screen.getByText('cm-b')).toBeInTheDocument();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/clusters/resources?context='),
+      expect.anything()
+    );
+  });
+
+  it('hides the namespace filter for cluster-scoped kinds', () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ kind: 'nodes', items: [] }) });
+
+    render(<ResourcesPanel context="minikube" />);
+
+    fireEvent.focus(screen.getByLabelText('Resource kind'));
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Cluster Roles' }));
+
+    expect(screen.queryByLabelText('Namespace')).not.toBeInTheDocument();
   });
 });
 

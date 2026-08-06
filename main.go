@@ -666,6 +666,7 @@ func newRouter() *gin.Engine {
 	r.GET("/api/clusters/events", getClusterEvents)
 	r.GET("/api/clusters/health", getClusterHealth)
 	r.POST("/api/clusters/apply", applyManifest)
+	r.GET("/api/clusters/resources", getClusterResources)
 
 	// Serve embedded static files from frontend/dist
 	distFS, err := fs.Sub(frontendFS, "frontend/dist")
@@ -1086,4 +1087,78 @@ func applyManifest(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"output": string(output)})
+}
+
+// Resource kinds browsable in the UI (plural, may include API group suffix)
+var resourceWhitelist = map[string]string{
+	"configmaps":          "configmaps",
+	"secrets":             "secrets",
+	"serviceaccounts":     "serviceaccounts",
+	"roles":               "roles.rbac.authorization.k8s.io",
+	"rolebindings":        "rolebindings.rbac.authorization.k8s.io",
+	"clusterroles":        "clusterroles.rbac.authorization.k8s.io",
+	"clusterrolebindings": "clusterrolebindings.rbac.authorization.k8s.io",
+	"deployments":         "deployments.apps",
+	"services":            "services",
+	"ingresses":           "ingresses.networking.k8s.io",
+	"storageclasses":      "storageclasses.storage.k8s.io",
+	"nodes":               "nodes",
+	"pods":                "pods",
+}
+
+// Kinds that are cluster-scoped and therefore reject -n
+var clusterScopedResources = map[string]bool{
+	"clusterroles":        true,
+	"clusterrolebindings": true,
+	"storageclasses":      true,
+	"nodes":               true,
+}
+
+// getClusterResources lists a whitelisted resource kind for a context
+func getClusterResources(c *gin.Context) {
+	ctxName := c.Query("context")
+	kind := strings.ToLower(strings.TrimSpace(c.Query("kind")))
+	namespace := strings.TrimSpace(c.Query("namespace"))
+
+	resource, ok := resourceWhitelist[kind]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported resource kind %q", kind)})
+		return
+	}
+
+	args := []string{"--context", ctxName, "get", resource, "-o", "json"}
+	if namespace != "" && !clusterScopedResources[kind] {
+		args = append(args, "-n", namespace)
+	}
+
+	cmd := exec.Command("kubectl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": string(output)})
+		return
+	}
+
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Name              string `json:"name"`
+				Namespace         string `json:"namespace"`
+				CreationTimestamp string `json:"creationTimestamp"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(output, &list); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse kubectl output: " + err.Error()})
+		return
+	}
+
+	items := make([]gin.H, 0, len(list.Items))
+	for _, it := range list.Items {
+		items = append(items, gin.H{
+			"name":      it.Metadata.Name,
+			"namespace": it.Metadata.Namespace,
+			"created":   it.Metadata.CreationTimestamp,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"kind": kind, "items": items})
 }
