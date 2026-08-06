@@ -9,9 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Cluster management: browse cluster events, node/pod health summary, and apply or delete YAML manifests
+- Resource browser for configmaps, secrets, service accounts, RBAC roles/bindings, and workloads
+- Resource detail view with full YAML shown on row click
+- Event detail modal exposing source, count, namespace, and first-seen fields
+- Multiple independent log streams, each with its own filters, cluster context, and auto-reconnect
+- Combined pod/container selector for stream configuration
+- Namespace filter in the events view populated from the selected cluster
+- Animated demo GIF in the README
+
 ### Changed
 
+- Simplified log stream configuration to a namespace + pod/container selector
+- Removed unused advanced filtering options (exclude/include patterns, highlight, container state, time ranges, downloads)
+- Cluster management endpoints accept the context as a query parameter, supporting context names containing slashes (e.g. EKS ARNs)
+- Updated README and unit test workflow instructions
+
 ### Fixed
+
+- Cluster management requests returning the SPA HTML fallback instead of JSON for context names containing slashes
+- Unknown `/api/*` and `/ws/*` paths returning 200 HTML instead of a 404 JSON error
+- `task run` failing on Windows because the built binary was named `stern-ui` instead of `stern-ui.exe`
+- Running the backend binary with a `.\` prefix breaking under Git Bash on Windows
 
 ## [0.4.0] - 2026-03-30
 
