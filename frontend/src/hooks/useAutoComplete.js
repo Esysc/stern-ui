@@ -113,6 +113,26 @@ export function useAutoComplete(context, namespace) {
     fetchContainers();
   }, [namespace, context, namespaces]);
 
+  // Build structured options: { pod: 'name', containers: ['c1', 'c2'] }
+  const options = useMemo(() => {
+    const podMap = {};
+    for (const pod of pods) {
+      if (!podMap[pod]) {
+        podMap[pod] = [];
+      }
+    }
+    for (const container of containers) {
+      const [pod, containerName] = container.split('/');
+      if (podMap[pod] && !podMap[pod].includes(containerName)) {
+        podMap[pod].push(containerName);
+      }
+    }
+    return Object.entries(podMap).map(([pod, containers]) => ({
+      pod,
+      containers: containers.sort(),
+    }));
+  }, [pods, containers]);
+
   // Memoize the return object to prevent causing re-renders
   return useMemo(() => ({
     namespaces,
@@ -120,6 +140,7 @@ export function useAutoComplete(context, namespace) {
     containers,
     contexts,
     nodes,
+    options,
     loading
-  }), [namespaces, pods, containers, contexts, nodes, loading]);
+  }), [namespaces, pods, containers, contexts, nodes, options, loading]);
 }

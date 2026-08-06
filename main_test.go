@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -16,13 +17,7 @@ func init() {
 }
 
 func setupRouter() *gin.Engine {
-	r := gin.New()
-	r.GET("/ws/logs", streamLogs)
-	r.GET("/api/namespaces", getNamespaces)
-	r.GET("/api/pods", getPods)
-	r.GET("/api/contexts", getContexts)
-	r.GET("/api/nodes", getNodes)
-	return r
+	return newRouter()
 }
 
 // TestStreamLogsEndpoint tests that the WebSocket endpoint is registered
@@ -33,9 +28,11 @@ func TestStreamLogsEndpoint(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	// Since we're not using a real WebSocket client, the upgrader will fail
-	// but we verify the endpoint exists (not 404)
+	// The upgrader will fail without a real WebSocket client, but the endpoint
+	// should not return 404 or 405. It should respond with an error about the
+	// upgrade failure or accept the request.
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
+	assert.NotEqual(t, http.StatusMethodNotAllowed, w.Code)
 }
 
 // TestStreamLogsQueryParams tests various query parameter combinations
@@ -206,6 +203,8 @@ func TestAPIEndpointsExist(t *testing.T) {
 		"/api/pods",
 		"/api/contexts",
 		"/api/nodes",
+		"/api/clusters/events?context=minikube",
+		"/api/clusters/health?context=minikube",
 	}
 
 	for _, endpoint := range endpoints {
@@ -216,6 +215,40 @@ func TestAPIEndpointsExist(t *testing.T) {
 			assert.NotEqual(t, http.StatusNotFound, w.Code, "Endpoint %s should exist", endpoint)
 		})
 	}
+}
+
+// TestApplyManifestRejectsBadVerb verifies the apply endpoint validates input
+func TestApplyManifestRejectsBadVerb(t *testing.T) {
+	r := setupRouter()
+
+	req, _ := http.NewRequest("POST", "/api/clusters/apply?context=minikube", strings.NewReader(`{"verb":"explode","yaml":"apiVersion: v1\nkind: Pod"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestResourcesRejectsUnknownKind verifies the resource browser only accepts whitelisted kinds
+func TestResourcesRejectsUnknownKind(t *testing.T) {
+	r := setupRouter()
+
+	req, _ := http.NewRequest("GET", "/api/clusters/resources?context=minikube&kind=deployments.replicasets", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestResourceDetailRejectsBadName verifies resource names are validated
+func TestResourceDetailRejectsBadName(t *testing.T) {
+	r := setupRouter()
+
+	req, _ := http.NewRequest("GET", "/api/clusters/resource-detail?context=minikube&kind=configmaps&name=-f", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // TestCORSUpgrader tests that the WebSocket upgrader allows all origins

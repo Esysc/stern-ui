@@ -4,36 +4,26 @@ import { Header } from '../Header';
 
 describe('Header', () => {
   it('renders the title', () => {
-    render(<Header persistSettings={false} onPersistSettingsChange={() => {}} />);
+    render(<Header onClearSettings={() => {}} />);
     expect(screen.getByText('Stern Web UI')).toBeInTheDocument();
   });
 
-  it('renders persist settings checkbox', () => {
-    render(<Header persistSettings={false} onPersistSettingsChange={() => {}} />);
-    expect(screen.getByLabelText(/persist settings/i)).toBeInTheDocument();
+  it('renders clear all settings button', () => {
+    render(<Header onClearSettings={() => {}} />);
+    expect(screen.getByRole('button', { name: /clear all settings/i })).toBeInTheDocument();
   });
 
-  it('reflects persistSettings state - unchecked', () => {
-    render(<Header persistSettings={false} onPersistSettingsChange={() => {}} />);
-    expect(screen.getByLabelText(/persist settings/i)).not.toBeChecked();
-  });
+  it('calls onClearSettings when clicking clear button', () => {
+    const handleClear = vi.fn();
+    render(<Header onClearSettings={handleClear} />);
 
-  it('reflects persistSettings state - checked', () => {
-    render(<Header persistSettings={true} onPersistSettingsChange={() => {}} />);
-    expect(screen.getByLabelText(/persist settings/i)).toBeChecked();
-  });
+    fireEvent.click(screen.getByRole('button', { name: /clear all settings/i }));
 
-  it('calls onPersistSettingsChange when toggling checkbox', () => {
-    const handleChange = vi.fn();
-    render(<Header persistSettings={false} onPersistSettingsChange={handleChange} />);
-
-    fireEvent.click(screen.getByLabelText(/persist settings/i));
-
-    expect(handleChange).toHaveBeenCalledWith(true);
+    expect(handleClear).toHaveBeenCalled();
   });
 
   it('renders link to stern repo', () => {
-    render(<Header persistSettings={false} onPersistSettingsChange={() => {}} />);
+    render(<Header onClearSettings={() => {}} />);
 
     const link = screen.getByRole('link', { name: /powered by stern/i });
     expect(link).toHaveAttribute('href', 'https://github.com/stern/stern');

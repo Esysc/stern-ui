@@ -8,21 +8,21 @@ A modern web interface for [stern](https://github.com/stern/stern), the multi-po
 
 ## Features
 
-- **Real-time Log Streaming** - WebSocket-based live log tailing from multiple pods
-- **Multi-Stream Support** - Open multiple log streams in tabs simultaneously
-- **Advanced Filtering** - Filter by namespace, selector, container, node, and regex patterns
+- **Real-time Log Streaming** - WebSocket-based live log tailing across pods and containers
+- **Multi-Stream Support** - Open multiple independent log streams, each with its own filters, context, and auto-reconnect state
+- **Pod/Container Selector** - Pick a specific pod and container to tail, or leave it blank to follow all matching pods
 - **Log Level Detection** - Automatic detection and color-coding of log levels (ERROR, WARN, INFO, DEBUG)
-- **Search & Highlight** - Real-time search within logs with pattern highlighting
-- **Pause/Resume** - Pause log streaming without losing incoming messages (buffered)
-- **Download Logs** - Export logs as JSON or plain text files
-- **Pod Autocomplete** - Smart autocomplete for namespaces, pods, and contexts
-- **Persistent Settings** - Save your configuration to localStorage
+- **Pause/Resume** - Pause log streaming without dropping the connection
+- **Cluster Events** - Browse cluster events with namespace filtering and per-event details
+- **Cluster Health** - Node readiness and pod issue summary
+- **Resource Browser** - Browse configmaps, secrets, RBAC roles/bindings, and workloads, with full YAML detail on click
+- **Apply Manifests** - Apply or delete a YAML manifest directly from the UI
+- **Persistent Settings** - Per-stream configuration saved to localStorage
 - **Dark Theme** - Easy on the eyes for extended log watching sessions
 
 ## Screenshots
 
-<img width="2514" height="1022" alt="image" src="https://github.com/user-attachments/assets/3bd6e256-1416-4b64-b49d-6bab0fb8f448" />
-
+<img src="docs/demo.gif" alt="Stern Web UI demo" width="1000" />
 
 ## Quick Start
 
@@ -177,55 +177,27 @@ docker run -p 8080:8080 \
 
 ## Kubernetes Deployment
 
-Deploy stern-ui directly into your cluster:
+stern-ui runs anywhere with kubectl access. To deploy it inside your cluster, build the image and run it with your kubeconfig mounted:
 
 ```bash
-# Apply the Kubernetes manifests
-kubectl apply -f stern-ui.yaml
-
-# Port-forward to access the UI
-kubectl port-forward svc/stern-ui 8080:80
-
-# Open http://localhost:8080
+# Run in-cluster with host kubeconfig mounted
+docker run -p 8080:8080 \
+  -v ~/.kube/config:/root/.kube/config:ro \
+  stern-ui:latest
 ```
 
-The included `stern-ui.yaml` creates:
-- ServiceAccount with pod/log read permissions
-- ClusterRole and ClusterRoleBinding for RBAC
-- Deployment with resource limits
-- ClusterIP Service
+A `stern-ui.yaml` manifest (ServiceAccount, RBAC, Deployment, Service) was previously bundled but is no longer shipped; write your own manifest or run the single binary instead.
 
 ## Configuration Options
 
-### Stern Parameters
+### Log Stream
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | **Namespace** | Kubernetes namespace to tail logs from | - |
-| **Query** | Pod name regex pattern | `.` (all pods) |
-| **Selector** | Label selector (e.g., `app=nginx`) | - |
-| **Since** | Time duration for log history | `1h` |
-| **Container** | Container name regex | - |
-| **Exclude Container** | Exclude containers matching pattern | - |
-| **Exclude Pod** | Exclude pods matching pattern | - |
-| **Container State** | Filter by state: running, waiting, terminated | `all` |
-| **Include** | Show only lines matching pattern | - |
-| **Exclude** | Hide lines matching pattern | - |
-| **Highlight** | Highlight text matching pattern | - |
-| **Tail** | Number of initial lines | `-1` (all) |
-| **Node** | Filter by node name | - |
-| **Context** | Kubernetes context to use | current |
-| **Max Log Requests** | Max concurrent log requests | `50` (auto: `500` for all namespaces) |
+| **Pod / Container** | Specific pod/container to tail; empty follows all | all pods |
 
-### Checkboxes
-
-| Option | Description |
-|--------|-------------|
-| **All Namespaces** | Tail from all namespaces |
-| **Timestamps** | Include timestamps in output |
-| **Init Containers** | Include init container logs |
-| **Ephemeral Containers** | Include ephemeral container logs |
-| **No Follow** | Don't follow, exit after showing existing logs |
+Each stream has its own configuration, saved to localStorage. The cluster context is selected globally in the header and applied to every stream.
 
 ## Architecture
 
@@ -270,6 +242,12 @@ graph TB
 | `/api/containers` | GET | List container names (supports `?namespace=` and `?context=`) |
 | `/api/contexts` | GET | List available kubectl contexts |
 | `/api/nodes` | GET | List cluster nodes (supports `?context=`) |
+| `/api/pod-metadata` | GET | Pod metadata (supports `?context=`) |
+| `/api/clusters/events` | GET | List cluster events (`?context=`, `?namespace=`) |
+| `/api/clusters/health` | GET | Node status and pod issues (`?context=`, `?namespace=`) |
+| `/api/clusters/resources` | GET | List a resource kind (`?context=`, `?kind=`, `?namespace=`) |
+| `/api/clusters/resource-detail` | GET | Full YAML of a single resource (`?context=`, `?kind=`, `?name=`, `?namespace=`) |
+| `/api/clusters/apply` | POST | Apply or delete a YAML manifest (`?context=`) |
 
 ## Project Structure
 
@@ -278,7 +256,7 @@ stern-ui/
 ├── main.go                 # Go backend server
 ├── main_test.go            # Backend tests
 ├── Dockerfile              # Multi-stage Docker build
-├── stern-ui.yaml           # Kubernetes manifests
+├── Taskfile.yml            # Task automation
 ├── go.mod                  # Go dependencies
 └── frontend/
     ├── src/
@@ -290,7 +268,8 @@ stern-ui/
     │       ├── common/     # Reusable form components
     │       ├── logs/       # Log display components
     │       ├── stream/     # Stream management components
-    │       └── layout/     # Layout components
+    │       ├── management/ # Cluster events/health/resources/apply views
+    │       └── layout/     # Layout components (Header)
     ├── package.json
     ├── vite.config.js
     └── tailwind.config.js

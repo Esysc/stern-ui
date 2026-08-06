@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { loadConfig, saveConfig, loadGlobalSettings, saveGlobalSettings, clearConfig } from '../storage';
+import { loadAllConfigs, saveConfig, loadGlobalSettings, saveGlobalSettings, deleteConfig } from '../storage';
 import { DEFAULT_CONFIG, STORAGE_KEY } from '../../constants';
 
 describe('storage utilities', () => {
@@ -8,27 +8,27 @@ describe('storage utilities', () => {
     vi.clearAllMocks();
   });
 
-  describe('loadConfig', () => {
-    it('returns default config when no saved config exists', () => {
-      const result = loadConfig(1);
-      expect(result).toEqual(DEFAULT_CONFIG);
+  describe('loadAllConfigs', () => {
+    it('returns empty array when no saved configs exist', () => {
+      expect(loadAllConfigs()).toEqual([]);
     });
 
-    it('returns saved config merged with defaults', () => {
+    it('returns saved configs merged with defaults', () => {
       const savedConfig = { namespace: 'production', query: 'nginx' };
-      localStorage.setItem(`${STORAGE_KEY}-1`, JSON.stringify(savedConfig));
+      localStorage.setItem(`${STORAGE_KEY}-stream-1`, JSON.stringify(savedConfig));
 
-      const result = loadConfig(1);
+      const result = loadAllConfigs();
 
-      expect(result.namespace).toBe('production');
-      expect(result.query).toBe('nginx');
-      expect(result.selector).toBe(DEFAULT_CONFIG.selector); // default value
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('1');
+      expect(result[0].config.namespace).toBe('production');
+      expect(result[0].config.query).toBe('nginx');
+      expect(result[0].config.selector).toBe(DEFAULT_CONFIG.selector);
     });
 
-    it('returns default config for invalid JSON', () => {
-      localStorage.setItem(`${STORAGE_KEY}-1`, 'invalid json');
-      const result = loadConfig(1);
-      expect(result).toEqual(DEFAULT_CONFIG);
+    it('returns empty array for invalid JSON', () => {
+      localStorage.setItem(`${STORAGE_KEY}-stream-1`, 'invalid json');
+      expect(loadAllConfigs()).toEqual([]);
     });
   });
 
@@ -37,17 +37,17 @@ describe('storage utilities', () => {
       const config = { namespace: 'test', query: '.' };
       saveConfig(1, config);
 
-      const saved = JSON.parse(localStorage.getItem(`${STORAGE_KEY}-1`));
+      const saved = JSON.parse(localStorage.getItem(`${STORAGE_KEY}-stream-1`));
       expect(saved).toEqual(config);
     });
   });
 
-  describe('clearConfig', () => {
+  describe('deleteConfig', () => {
     it('removes config from localStorage', () => {
-      localStorage.setItem(`${STORAGE_KEY}-1`, JSON.stringify({ old: 'config' }));
-      clearConfig(1);
+      localStorage.setItem(`${STORAGE_KEY}-stream-1`, JSON.stringify({ old: 'config' }));
+      deleteConfig(1);
 
-      expect(localStorage.getItem(`${STORAGE_KEY}-1`)).toBeNull();
+      expect(localStorage.getItem(`${STORAGE_KEY}-stream-1`)).toBeNull();
     });
   });
 

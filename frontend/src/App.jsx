@@ -1,201 +1,93 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Header, StreamTabs, StreamPanel } from './components';
-import { STORAGE_KEY } from './constants';
-import { clearAllSettings } from './utils/storage';
+import { useEffect, useState, useCallback } from 'react';
+import { Header, StreamPanel } from './components';
+import { EventsPanel, HealthPanel, ApplyPanel, ResourcesPanel } from './components/management';
+import { clearAllSettings, deleteConfig, loadAllConfigs } from './utils/storage';
+import { getApiBase } from './utils/helpers';
 
-function areRuntimeConfigsEqual(currentConfig = {}, nextConfig = {}) {
-  const currentKeys = Object.keys(currentConfig);
-  const nextKeys = Object.keys(nextConfig);
+const CLUSTER_KEY = 'stern-ui-cluster';
 
-  if (currentKeys.length !== nextKeys.length) {
-    return false;
-  }
-
-  for (const key of nextKeys) {
-    if (currentConfig[key] !== nextConfig[key]) {
-      return false;
-    }
-  }
-
-  return true;
+function nextStreamId(streams) {
+  const maxId = streams.reduce((max, s) => Math.max(max, Number(s.id) || 0), 0);
+  return String(maxId + 1);
 }
 
 function App() {
-  // Check if we're in detached mode
-  const isDetached = useMemo(() => {
-    const params = new URLSearchParams(globalThis.location.search);
-    return params.has('detached');
-  }, []);
-
+  const [view, setView] = useState('logs');
+  const [contexts, setContexts] = useState([]);
+  const [context, setContext] = useState(() => globalThis.localStorage.getItem(CLUSTER_KEY) || '');
   const [streams, setStreams] = useState(() => {
-    if (isDetached) {
-      // Load config from URL params
-      const params = new URLSearchParams(globalThis.location.search);
-      const configStr = params.get('config');
-      const name = params.get('name') || 'Detached Stream';
-      const config = configStr ? JSON.parse(decodeURIComponent(configStr)) : {};
-
-      // Set window title
-      document.title = name;
-
-      return [{ id: 1, name, config }];
-    }
-    return [{ id: 1, name: 'Stream 1' }];
+    const saved = loadAllConfigs();
+    if (saved.length > 0) return saved;
+    return [{ id: '1', config: {} }];
   });
-  const [activeStreamId, setActiveStreamId] = useState(1);
 
-  const handleStreamStateChange = useCallback(({ streamId, config, isConnected }) => {
-    setStreams(prev => prev.map(stream => {
-      if (stream.id !== streamId) return stream;
-
-      const currentRuntime = stream.runtime || {};
-      const sameConnection = currentRuntime.isConnected === isConnected;
-      const sameConfig = areRuntimeConfigsEqual(currentRuntime.config, config);
-
-      if (sameConnection && sameConfig) {
-        return stream;
-      }
-
-      return {
-        ...stream,
-        runtime: {
-          config,
-          isConnected
-        }
-      };
-    }));
+  useEffect(() => {
+    const base = getApiBase();
+    fetch(`${base}/api/contexts`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => {
+        setContexts(list);
+        setContext((prev) => prev || (list[0] || ''));
+      })
+      .catch(() => setContexts([]));
   }, []);
 
-  // Listen for reattach messages from detached windows
   useEffect(() => {
-    if (isDetached) return;
+    if (context) globalThis.localStorage.setItem(CLUSTER_KEY, context);
+  }, [context]);
 
-    const handleMessage = (event) => {
-      if (event.data?.type === 'REATTACH_STREAM') {
-        const { name, config } = event.data;
-        const newId = Math.max(...streams.map(s => s.id), 0) + 1;
-        setStreams([...streams, { id: newId, name, config }]);
-        setActiveStreamId(newId);
-      }
-    };
+  const handleAddStream = useCallback(() => {
+    setStreams(prev => {
+      const id = nextStreamId(prev);
+      return [...prev, { id, config: { context } }];
+    });
+    setView('logs');
+  }, [context]);
 
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [isDetached, streams]);
+  const handleRemoveStream = useCallback((id) => {
+    setStreams(prev => prev.filter(s => s.id !== id));
+    deleteConfig(id);
+  }, []);
 
-  const handleReattach = (currentConfig) => {
-    if (!isDetached || !window.opener) return;
-
-    const stream = streams[0];
-
-    // Send message to main window with current config
-    window.opener.postMessage({
-      type: 'REATTACH_STREAM',
-      name: stream.name,
-      config: currentConfig
-    }, globalThis.location.origin);
-
-    // Close this window
-    window.close();
-  };
+  const handleStreamStateChange = useCallback(({ streamId, config }) => {
+    setStreams(prev => prev.map(s => (s.id === String(streamId) ? { ...s, config } : s)));
+  }, []);
 
   const handleClearSettings = () => {
-    if (globalThis.confirm('Are you sure you want to clear all saved settings? This will reset all stream configurations and disconnect all streams.')) {
+    if (globalThis.confirm('Are you sure you want to clear all saved settings? This will reset the stream configuration and disconnect.')) {
       clearAllSettings();
-      // Reload the page to reset all streams
       globalThis.location.reload();
-    }
-  };
-
-  const addStream = () => {
-    const newId = Math.max(...streams.map(s => s.id)) + 1;
-    setStreams([...streams, { id: newId, name: `Stream ${newId}` }]);
-    setActiveStreamId(newId);
-  };
-
-  const removeStream = (id, allowRemoveLast = false) => {
-    if (streams.length === 1 && !allowRemoveLast) return;
-    const newStreams = streams.filter(s => s.id !== id);
-    setStreams(newStreams);
-    if (activeStreamId === id && newStreams.length > 0) {
-      setActiveStreamId(newStreams[0].id);
-    }
-  };
-
-  const detachStream = (id) => {
-    const stream = streams.find(s => s.id === id);
-    if (!stream) return;
-
-    // Get current config from localStorage using the same key format as storage.js
-    const configKey = `${STORAGE_KEY}-${id}`;
-    const configStr = localStorage.getItem(configKey);
-    const persistedConfig = configStr ? JSON.parse(configStr) : {};
-    const runtimeConfig = stream.runtime?.config || {};
-    const isRuntimeConnected = stream.runtime?.isConnected === true;
-
-    // Prefer runtime config to keep the detached window in sync with active UI state.
-    const config = {
-      ...persistedConfig,
-      ...runtimeConfig,
-      wasConnected: isRuntimeConnected || persistedConfig.wasConnected === true
-    };
-
-    // Build URL with config
-    const params = new URLSearchParams();
-    params.set('detached', 'true');
-    params.set('name', stream.name);
-    params.set('config', encodeURIComponent(JSON.stringify(config)));
-
-    // Open in new window with title
-    const url = `${globalThis.location.origin}${globalThis.location.pathname}?${params.toString()}`;
-    const newWindow = globalThis.open(url, '_blank', 'width=1200,height=800');
-
-    if (!newWindow) {
-      globalThis.alert('Popup blocked. Please allow popups for this site to detach streams.');
-      return;
-    }
-
-    // Set window title (will be overridden by the detached window)
-    newWindow.document.title = stream.name;
-
-    // If this is the last stream, create a new one before removing
-    if (streams.length === 1) {
-      const newId = Math.max(...streams.map(s => s.id)) + 1;
-      setStreams([{ id: newId, name: `Stream ${newId}` }]);
-      setActiveStreamId(newId);
-    } else {
-      // Remove stream from main window after successful detach
-      removeStream(id, false);
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-900 text-white font-mono">
-      <Header isDetached={isDetached} onClearSettings={handleClearSettings} />
+      <Header
+        onClearSettings={handleClearSettings}
+        contexts={contexts}
+        context={context}
+        onContextChange={setContext}
+        view={view}
+        onViewChange={setView}
+        onAddStream={handleAddStream}
+        streamCount={streams.length}
+      />
 
-      {streams.map(stream => (
-        <div key={stream.id} style={{ display: stream.id === activeStreamId ? 'block' : 'none' }}>
-          <StreamPanel
-            streamId={stream.id}
-            initialConfig={stream.config}
-            isDetached={isDetached}
-            onReattach={handleReattach}
-            onStreamStateChange={handleStreamStateChange}
-            isActive={stream.id === activeStreamId}
-            streamTabs={!isDetached && (
-              <StreamTabs
-                streams={streams}
-                activeStreamId={activeStreamId}
-                onSelectStream={setActiveStreamId}
-                onAddStream={addStream}
-                onRemoveStream={removeStream}
-                onDetachStream={detachStream}
-              />
-            )}
-          />
-        </div>
-      ))
-      }
+      {view === 'logs' && streams.map((s) => (
+        <StreamPanel
+          key={s.id}
+          streamId={s.id}
+          initialConfig={s.config}
+          context={context}
+          isActive={true}
+          onRemove={() => handleRemoveStream(s.id)}
+          onStreamStateChange={handleStreamStateChange}
+        />
+      ))}
+      {view === 'events' && <EventsPanel context={context} />}
+      {view === 'health' && <HealthPanel context={context} />}
+      {view === 'resources' && <ResourcesPanel context={context} />}
+      {view === 'apply' && <ApplyPanel context={context} />}
     </div>
   );
 }
