@@ -9,6 +9,7 @@
 *.test
 *.out
 vendor/
+stern-ui
 
 # ===================
 # Frontend (Node/React)
@@ -77,3 +78,4 @@ coverage/
 *.temp
 .cache/
 .task/
+.serena/
