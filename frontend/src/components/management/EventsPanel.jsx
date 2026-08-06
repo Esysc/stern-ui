@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { apiFetch } from '../../utils/api';
+import { AutocompleteField } from '../common/AutocompleteField';
 
 const REFRESH_MS = 30000;
 
@@ -10,8 +11,16 @@ const REFRESH_MS = 30000;
 export function EventsPanel({ context }) {
   const [events, setEvents] = useState([]);
   const [namespace, setNamespace] = useState('');
+  const [namespaces, setNamespaces] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!context) return;
+    apiFetch(`/api/namespaces?context=${encodeURIComponent(context)}`)
+      .then((list) => setNamespaces(Array.isArray(list) ? list.filter(n => typeof n === 'string') : []))
+      .catch(() => setNamespaces([]));
+  }, [context]);
 
   const load = useCallback(async () => {
     if (!context) return;
@@ -43,13 +52,16 @@ export function EventsPanel({ context }) {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold">Cluster Events</h2>
         <div className="flex items-center gap-3">
-          <input
-            value={namespace}
-            onChange={(e) => setNamespace(e.target.value)}
-            placeholder="Namespace (all)"
-            className="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            aria-label="Event namespace filter"
-          />
+          <div className="w-56">
+            <AutocompleteField
+              label="Namespace"
+              value={namespace}
+              onChange={setNamespace}
+              suggestions={namespaces}
+              placeholder="all"
+              idPrefix="events"
+            />
+          </div>
           <button
             onClick={load}
             className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm transition-colors"

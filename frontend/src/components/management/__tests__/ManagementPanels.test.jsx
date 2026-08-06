@@ -8,15 +8,35 @@ beforeEach(() => {
 
 describe('EventsPanel', () => {
   it('renders events from the API', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => [{ time: '2026-01-01T00:00:00Z', type: 'Warning', reason: 'BackOff', object: 'Pod/demo', message: 'Back-off restarting' }]
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      const isNamespaces = String(url).includes('/api/namespaces');
+      return Promise.resolve({
+        ok: true,
+        json: async () => (isNamespaces
+          ? ['default', 'kube-system']
+          : [{ time: '2026-01-01T00:00:00Z', type: 'Warning', reason: 'BackOff', object: 'Pod/demo', message: 'Back-off restarting' }])
+      });
     });
 
     render(<EventsPanel context="minikube" />);
 
     await waitFor(() => expect(screen.getByText('BackOff')).toBeInTheDocument());
     expect(screen.getByText('Pod/demo')).toBeInTheDocument();
+  });
+
+  it('populates the namespace field with cluster namespaces', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      const isNamespaces = String(url).includes('/api/namespaces');
+      return Promise.resolve({
+        ok: true,
+        json: async () => (isNamespaces ? ['default', 'kube-system'] : [])
+      });
+    });
+
+    render(<EventsPanel context="minikube" />);
+
+    fireEvent.focus(screen.getByLabelText('Namespace'));
+    await waitFor(() => expect(screen.getByText('kube-system')).toBeInTheDocument());
   });
 });
 
