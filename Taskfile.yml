@@ -7,7 +7,6 @@ vars:
   APP_PORT: 8080
   # Go only auto-appends .exe for default output names, so name it explicitly per-OS
   BINARY: '{{if eq OS "windows"}}stern-ui.exe{{else}}stern-ui{{end}}'
-  RUN_BINARY: '{{if eq OS "windows"}}.\stern-ui.exe{{else}}./stern-ui{{end}}'
 
 tasks:
   # Backend tasks
@@ -35,7 +34,7 @@ tasks:
     deps:
       - backend:build
     cmds:
-      - "{{.RUN_BINARY}}"
+      - "./{{.BINARY}}"
 
   # Frontend tasks
   frontend:install:
@@ -145,7 +144,7 @@ tasks:
     deps:
       - build
     cmds:
-      - "{{.RUN_BINARY}}"
+      - "./{{.BINARY}}"
 
   # Cleanup tasks
   clean:
