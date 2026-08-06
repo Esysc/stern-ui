@@ -5,9 +5,9 @@ vars:
   DOCKER_IMAGE: stern-ui
   DOCKER_TAG: latest
   APP_PORT: 8080
-  # Go appends .exe on Windows, so pick the right name when running
-  BINARY: stern-ui
-  RUN_BINARY: '{{if eq OS "windows"}}stern-ui.exe{{else}}./stern-ui{{end}}'
+  # Go only auto-appends .exe for default output names, so name it explicitly per-OS
+  BINARY: '{{if eq OS "windows"}}stern-ui.exe{{else}}stern-ui{{end}}'
+  RUN_BINARY: '{{if eq OS "windows"}}.\stern-ui.exe{{else}}./stern-ui{{end}}'
 
 tasks:
   # Backend tasks
@@ -27,8 +27,7 @@ tasks:
       - go.mod
       - go.sum
     generates:
-      - stern-ui
-      - stern-ui.exe
+      - "{{.BINARY}}"
 
   backend:run:
     desc: Run backend server
@@ -152,7 +151,7 @@ tasks:
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -f stern-ui stern-ui.exe
+      - rm -f {{.BINARY}}
       - rm -rf {{.FRONTEND_DIR}}/dist
       - rm -rf {{.FRONTEND_DIR}}/node_modules
 
