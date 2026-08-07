@@ -9,24 +9,21 @@
   },
   "packageRules": [
     {
-      "matchPackagePatterns": ["*"],
-      "matchPaths": ["frontend/package.json"],
+      "matchFileNames": ["frontend/package.json"],
       "groupName": "frontend dependencies",
       "groupSlug": "frontend",
       "automerge": true,
       "automergeType": "pr"
     },
     {
-      "matchPackagePatterns": ["*"],
-      "matchPaths": ["go.mod"],
+      "matchFileNames": ["go.mod"],
       "groupName": "go dependencies",
       "groupSlug": "go",
       "automerge": true,
       "automergeType": "pr"
     },
     {
-      "matchPackagePatterns": ["*"],
-      "matchPaths": ["Dockerfile"],
+      "matchFileNames": ["Dockerfile"],
       "groupName": "docker base image",
       "groupSlug": "docker-base",
       "automerge": true,
