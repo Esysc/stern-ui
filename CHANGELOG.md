@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- GitHub Actions CI workflow that compiles and runs all tests (pre-commit, golangci-lint, backend and frontend tests) on push and pull requests
+- Renovate configuration for automated dependency update PRs (frontend, Go, and Docker)
+
+### Changed
+
+- Docker image now runs as a non-root user (`stern`) instead of root
+
+### Fixed
+
+- CI failing when eslint was not yet installed before the pre-commit checks ran
+
 ## [0.5.0] - 2026-08-06
 
 ### Added
