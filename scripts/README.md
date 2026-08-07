@@ -66,14 +66,21 @@ If you prefer to run the script directly without Task:
 
 ### How It Works
 
-The script automatically:
+When bumping a version, the script automatically:
 1. Checks prerequisites (git, gh CLI, clean working directory)
 2. Parses the current version from CHANGELOG.md
 3. Determines version to release (bump or use current)
-4. Updates CHANGELOG.md with new Unreleased section (if bumping)
-5. Creates and pushes git tag
-6. Commits changelog changes
-7. Creates GitHub release with extracted release notes
+4. Creates a `release/vX.Y.Z` branch from the default branch
+5. Updates CHANGELOG.md with new Unreleased section
+6. Commits the changelog (retrying if pre-commit hooks modify files)
+7. Pushes the release branch and opens a pull request into `main`
+8. Waits for the CI checks to pass
+9. Merges the pull request
+10. Checks out `main` and pulls the merged changes
+11. Creates and pushes the `vX.Y.Z` tag, then creates the GitHub release
+    (a release workflow builds and attaches the platform binaries)
+
+When using `--current`, no changelog changes are needed, so it tags `main` directly without a branch/PR.
 
 ### Example Output
 
@@ -124,12 +131,20 @@ Proceed with release 0.2.0? (y/N) y
 
 ℹ Starting release process...
 
+ℹ Creating release branch release/v0.2.0 from main...
 ℹ Updating CHANGELOG.md...
 ✓ CHANGELOG.md updated
-ℹ Creating git tag v0.2.0...
+✓ Commit succeeded
+ℹ Pushing release branch release/v0.2.0...
+ℹ Creating pull request...
+ℹ Pull request created: https://github.com/Esysc/stern-ui/pull/N
+ℹ Waiting for CI checks on https://github.com/Esysc/stern-ui/pull/N...
+✓ All CI checks passed
+ℹ Merging pull request...
+ℹ Switching back to main and pulling merged changes...
 ✓ Tag v0.2.0 created
-ℹ Pushing changes to remote...
-✓ Changes and tag pushed to remote
+ℹ Pushing tag v0.2.0...
+✓ Tag v0.2.0 pushed
 ✓ GitHub release created: v0.2.0
 
 ✓ Release 0.2.0 completed!
@@ -144,12 +159,12 @@ Proceed with release 0.2.0? (y/N) y
    git commit -m "feat: add new feature"
    ```
 
-3. Run the release:
+3. Run the release (from the default branch, `main`):
    ```bash
    task release -- minor
    ```
 
-The script will automatically create an [Unreleased] section in the CHANGELOG for the next release.
+The script will create a `release/vX.Y.Z` branch, open a PR, wait for CI to pass, merge it, and then tag `main`. It also creates a fresh `[Unreleased]` section in the CHANGELOG for the next release.
 
 ### Troubleshooting
 
