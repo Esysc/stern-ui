@@ -13,14 +13,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Install pre-commit
-        run: pip install pre-commit
-
       - name: Set up tools (Go, Node, golangci-lint) via mise
         uses: jdx/mise-action@v4
 
@@ -29,7 +21,9 @@ jobs:
         working-directory: frontend
 
       - name: Run pre-commit checks
-        run: pre-commit run --all-files
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files
         env:
           SKIP: "go-fmt,go-vet"
 
