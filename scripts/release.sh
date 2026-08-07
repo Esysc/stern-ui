@@ -87,7 +87,8 @@ usage() {
     cat << EOF
 Usage: $(basename "$0") [OPTIONS] [VERSION_TYPE]
 
-Automate the release process: version bumping, tagging, and GitHub release creation.
+Automate the release process: create a release branch, update the changelog,
+open a pull request, wait for CI, merge, then tag the default branch and create the GitHub release.
 
 ARGUMENTS:
     VERSION_TYPE    Version bump type: patch, minor, or major
@@ -168,7 +169,8 @@ parse_args() {
 # Parse current version from CHANGELOG
 get_current_version() {
     # Extract the first version tag from CHANGELOG (format: ## [X.Y.Z])
-    local version=$(grep -m 1 -oP '##\s+\[\K[0-9]+\.[0-9]+\.[0-9]+(?=\])' "$CHANGELOG_FILE" || echo "")
+    local version
+    version=$(grep -m 1 -oP '##\s+\[\K[0-9]+\.[0-9]+\.[0-9]+(?=\])' "$CHANGELOG_FILE" || echo "")
 
     if [ -z "$version" ]; then
         error "Could not parse current version from CHANGELOG.md"
@@ -215,7 +217,7 @@ prompt_version_bump() {
     echo ""
 
     while true; do
-        read -p "Enter choice (1-3): " choice
+        read -rp "Enter choice (1-3): " choice
         case $choice in
             1) echo "patch"; return ;;
             2) echo "minor"; return ;;
@@ -298,9 +300,10 @@ generate_changelog_content() {
 update_changelog() {
     local new_version=$1
     local old_version=$2
-    local date=$(date +%Y-%m-%d)
-    local temp_file=$(mktemp)
-    local temp_content=$(mktemp)
+    local date temp_file temp_content
+    date=$(date +%Y-%m-%d)
+    temp_file=$(mktemp)
+    temp_content=$(mktemp)
 
     info "Generating changelog content from commits..."
 
@@ -361,10 +364,11 @@ update_changelog() {
 # Extract release notes for the current version
 extract_release_notes() {
     local version=$1
-    local temp_file=$(mktemp)
+    local temp_file
+    temp_file=$(mktemp)
 
     # Extract content between [version] and the next version or end
-    awk -v version="$version" '
+    if ! awk -v version="$version" '
     BEGIN { in_version = 0; found = 0 }
 
     # Match version header
@@ -382,9 +386,8 @@ extract_release_notes() {
     in_version { print }
 
     END { if (!found) exit 1 }
-    ' "$CHANGELOG_FILE" > "$temp_file"
-
-    if [ $? -ne 0 ]; then
+    ' "$CHANGELOG_FILE" > "$temp_file"; then
+        rm -f "$temp_file"
         error "Could not extract release notes for version $version"
     fi
 
@@ -439,30 +442,83 @@ create_tag() {
     success "Tag $tag created"
 }
 
-# Push changes and tag
-push_to_remote() {
-    local tag=$1
+# Commit with retry in case pre-commit hooks modify the changelog
+commit_with_retry() {
+    local message=$1
+    local max_attempts=3
+    local attempt=1
 
-    info "Pushing changes to remote..."
+    while [ "$attempt" -le "$max_attempts" ]; do
+        info "Committing (attempt $attempt/$max_attempts)..."
+        if git commit -m "$message"; then
+            success "Commit succeeded"
+            return 0
+        fi
+        warning "Commit failed (pre-commit may have modified files). Staging changes and retrying..."
+        git add -u
+        attempt=$((attempt + 1))
+    done
 
-    # Only commit changelog if it was modified
-    if [ "$USE_CURRENT_VERSION" = false ]; then
-        git add "$CHANGELOG_FILE"
-        git commit -m "chore: prepare release $tag"
-        git push origin "$(git branch --show-current)"
-    fi
+    error "Failed to commit after $max_attempts attempts"
+}
 
-    info "Pushing tag $tag..."
-    git push origin "$tag"
+# Create a release pull request
+create_release_pr() {
+    local branch=$1
+    local version=$2
+    local base=$3
+    local temp_notes
+    temp_notes=$(mktemp)
 
-    success "Changes and tag pushed to remote"
+    info "Creating pull request..."
+    extract_release_notes "$version" > "$temp_notes"
+
+    local url
+    url=$(gh pr create \
+        --base "$base" \
+        --head "$branch" \
+        --title "Release v$version" \
+        --body-file "$temp_notes")
+
+    rm "$temp_notes"
+    echo "$url"
+}
+
+# Wait for CI checks to pass
+wait_for_checks() {
+    local pr_url=$1
+    local timeout_secs=${CHECK_TIMEOUT_SECS:-900}
+    local interval=15
+    local elapsed=0
+
+    info "Waiting for CI checks on $pr_url..."
+
+    while [ "$elapsed" -lt "$timeout_secs" ]; do
+        # Abort early if any check failed
+        if gh pr view "$pr_url" --json statusCheckRollup \
+            --jq '[.statusCheckRollup[] | select(.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT")] | length' \
+            | grep -q '[1-9]'; then
+            error "One or more CI checks failed on $pr_url"
+        fi
+
+        if gh pr checks "$pr_url" >/dev/null 2>&1; then
+            success "All CI checks passed"
+            return 0
+        fi
+
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    error "Timed out waiting for CI checks on $pr_url"
 }
 
 # Create GitHub release
 create_github_release() {
     local version=$1
     local tag="v$version"
-    local temp_notes=$(mktemp)
+    local temp_notes
+    temp_notes=$(mktemp)
 
     info "Creating GitHub release..."
 
@@ -547,16 +603,71 @@ main() {
         fi
     fi
 
-    # Only update changelog if bumping version
-    if [ "$USE_CURRENT_VERSION" = false ]; then
-        update_changelog "$new_version" "$current_version"
-    else
-        info "Skipping CHANGELOG update (using current version)"
+    # Determine the default branch (main or master)
+    DEFAULT_BRANCH="main"
+    current_branch=$(git branch --show-current)
+    if [[ "$current_branch" == "master" ]]; then
+        DEFAULT_BRANCH="master"
     fi
 
-    create_tag "$new_version"
-    push_to_remote "v$new_version"
-    create_github_release "$new_version"
+    local tag="v$new_version"
+
+    if [ "$USE_CURRENT_VERSION" = true ]; then
+        # No changelog changes needed: tag the default branch directly
+        info "Using current version, tagging $DEFAULT_BRANCH directly..."
+        git checkout "$DEFAULT_BRANCH" >/dev/null 2>&1
+        git pull origin "$DEFAULT_BRANCH" >/dev/null 2>&1
+
+        create_tag "$new_version"
+        info "Pushing tag $tag..."
+        git push origin "$tag"
+        success "Tag $tag pushed"
+
+        create_github_release "$new_version"
+    else
+        # Create the release branch from the default branch
+        release_branch="release/v$new_version"
+        info "Creating release branch $release_branch from $DEFAULT_BRANCH..."
+        git checkout "$DEFAULT_BRANCH" >/dev/null 2>&1
+        git pull origin "$DEFAULT_BRANCH" >/dev/null 2>&1
+        git checkout -b "$release_branch"
+
+        # Update changelog before committing the release branch
+        update_changelog "$new_version" "$current_version"
+
+        # Commit changelog, retrying if pre-commit hooks modify files
+        git add "$CHANGELOG_FILE"
+        commit_with_retry "chore: prepare release $tag"
+
+        # Push the release branch
+        info "Pushing release branch $release_branch..."
+        git push -u origin "$release_branch"
+
+        # Open the pull request
+        pr_url=$(create_release_pr "$release_branch" "$new_version" "$DEFAULT_BRANCH")
+        info "Pull request created: $pr_url"
+
+        # Wait for CI checks to pass
+        wait_for_checks "$pr_url"
+
+        # Merge the pull request (admin bypasses the required review)
+        info "Merging pull request..."
+        gh pr merge "$pr_url" --merge --admin
+
+        # Switch back to the default branch (main) and pull the merged changes
+        info "Switching back to $DEFAULT_BRANCH and pulling merged changes..."
+        git checkout "$DEFAULT_BRANCH"
+        git pull origin "$DEFAULT_BRANCH"
+
+        # Create and push the tag on the default branch
+        create_tag "$new_version"
+        info "Pushing tag $tag..."
+        git push origin "$tag"
+        success "Tag $tag pushed"
+
+        # Create the GitHub release (the workflow builds and attaches packages)
+        create_github_release "$new_version"
+    fi
 
     echo ""
     success "═══════════════════════════════════════"
