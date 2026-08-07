@@ -5,7 +5,6 @@
   "rangeStrategy": "bump",
   "vulnerabilityAlerts": {
     "labels": ["security", "dependencies"],
-    "schedule": ["every day"],
     "automerge": true
   },
   "packageRules": [
