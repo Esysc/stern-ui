@@ -494,16 +494,22 @@ wait_for_checks() {
     info "Waiting for CI checks on $pr_url..."
 
     while [ "$elapsed" -lt "$timeout_secs" ]; do
-        # Abort early if any check failed
-        if gh pr view "$pr_url" --json statusCheckRollup \
-            --jq '[.statusCheckRollup[] | select(.conclusion == "FAILURE" or .conclusion == "CANCELLED" or .conclusion == "TIMED_OUT")] | length' \
-            | grep -q '[1-9]'; then
-            error "One or more CI checks failed on $pr_url"
-        fi
+        local rollup
+        rollup=$(gh pr view "$pr_url" --json statusCheckRollup --jq '.statusCheckRollup' 2>/dev/null || echo "[]")
 
-        if gh pr checks "$pr_url" >/dev/null 2>&1; then
-            success "All CI checks passed"
-            return 0
+        # Skip while there are no checks reported yet
+        if [ "$rollup" != "[]" ] && [ -n "$rollup" ]; then
+            # Abort early if any check failed
+            if printf '%s' "$rollup" | jq -r '.[].conclusion // empty' \
+                | grep -qE '^FAILURE$|^CANCELLED$|^TIMED_OUT$|^STARTUP_FAILURE$'; then
+                error "One or more CI checks failed on $pr_url"
+            fi
+
+            # If every check has completed, we are done
+            if ! printf '%s' "$rollup" | jq -r '.[].status' | grep -qE 'QUEUED|IN_PROGRESS|PENDING'; then
+                success "All CI checks passed"
+                return 0
+            fi
         fi
 
         sleep "$interval"

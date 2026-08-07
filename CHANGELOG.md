@@ -9,23 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- GitHub Actions CI workflow that compiles and runs all tests (pre-commit, golangci-lint, backend and frontend tests) on pull requests
-- GitHub Actions release workflow that builds cross-platform binaries (linux amd64/arm64, macos arm64, windows amd64/arm64) and attaches them to the GitHub release on version tags
-- Renovate configuration for automated dependency update PRs (frontend, Go, and Docker)
+### Changed
+
+### Fixed
+
+## [0.5.1] - 2026-08-07
+
+### Added
+
 
 ### Changed
 
+- refactor(scripts): release via branch, PR, CI wait, merge, then tag
+- update CHANGELOG for release workflow
+- ci: add release workflow to build cross-platform binaries on tags
+- ci: run workflow only on pull_request events
+- fix(ci): build frontend before running Go tooling for go:embed
+- refactor(ci): use official pre-commit/action step
+- fix(ci): reinstall pre-commit before running hooks
+- docs(changelog): document mise-based version centralization
+- refactor(ci): centralize tool versions with mise
+- fix(ci): use Node 24 and golangci-lint v2 built with Go 1.25
+- docs(changelog): prepare Unreleased section for next release
+- Fix CI: install frontend dependencies before pre-commit
+- Add renovate config for automated dependency updates
+- Improve Dockerfile security by running as non-root user
+- Add CI workflow with pre-commit checks first
+
+### Fixed
+
+- resolve golangci-lint errcheck violations
+- GitHub Actions CI workflow that compiles and runs all tests (pre-commit, golangci-lint, backend and frontend tests) on pull requests
+- GitHub Actions release workflow that builds cross-platform binaries (linux amd64/arm64, macos arm64, windows amd64/arm64) and attaches them to the GitHub release on version tags
+- Renovate configuration for automated dependency update PRs (frontend, Go, and Docker)
 - Docker image now runs as a non-root user (`stern`) instead of root
 - Centralized developer tooling versions (Go, Node, golangci-lint) in a single `mise.toml`, consumed by CI via `jdx/mise-action` and auto-updated by Renovate
 - Docker frontend build stage now uses Node 24 instead of the deprecated Node 20 base image
 - CI now provisions all tool runtimes through mise instead of separate setup-node/setup-go/golangci-lint actions
 - CI workflow now runs on pull requests only (previously also ran on pushes to main/develop)
-
-### Fixed
-
 - CI failing when eslint was not yet installed before the pre-commit checks ran
 - golangci-lint failing to run because the pinned version was built with an older Go toolchain than the module targets
-
 ## [0.5.0] - 2026-08-06
 
 ### Added
