@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- GitHub Actions CI workflow that compiles and runs all tests (pre-commit, golangci-lint, backend and frontend tests) on push and pull requests
+- GitHub Actions CI workflow that compiles and runs all tests (pre-commit, golangci-lint, backend and frontend tests) on pull requests
+- GitHub Actions release workflow that builds cross-platform binaries (linux amd64/arm64, macos arm64, windows amd64/arm64) and attaches them to the GitHub release on version tags
 - Renovate configuration for automated dependency update PRs (frontend, Go, and Docker)
 
 ### Changed
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Centralized developer tooling versions (Go, Node, golangci-lint) in a single `mise.toml`, consumed by CI via `jdx/mise-action` and auto-updated by Renovate
 - Docker frontend build stage now uses Node 24 instead of the deprecated Node 20 base image
 - CI now provisions all tool runtimes through mise instead of separate setup-node/setup-go/golangci-lint actions
+- CI workflow now runs on pull requests only (previously also ran on pushes to main/develop)
 
 ### Fixed
 
