@@ -33,20 +33,20 @@
       "automerge": true,
       "automergeType": "pr",
       "schedule": ["before 3am on monday"]
-    }
-  ],
-  "regexManagers": [
+    },
     {
-      "description": "Update alpine base image in Dockerfile",
-      "fileMatch": ["Dockerfile"],
-      "matchStrings": [
-        "FROM (\\S+)\\s*",
-        "FROM (\\S+)\\s*\\s*#"
-      ],
-      "depNameTemplate": "alpine",
-      "depTemplate": "alpine:{{#.}}",
-      "extractVersionTemplate": "{{#extractVersion {{#url}},alpine,(.*),.*{{/url}}}}",
-      "versioning": "docker"
+      "matchManagers": ["mise"],
+      "groupName": "tool versions",
+      "groupSlug": "tool-versions",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "groupSlug": "github-actions",
+      "automerge": true,
+      "automergeType": "pr"
     }
   ],
   "lockFileMaintenance": {

@@ -9,10 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [24.x]
-        go-version: [1.25]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,34 +18,17 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install pre-commit
-        run: pip install pre-commit
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+      - name: Set up tools (Go, Node, golangci-lint) via mise
+        uses: jdx/mise-action@v4
 
       - name: Install frontend dependencies
         run: npm install
         working-directory: frontend
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-
       - name: Run pre-commit checks
         run: pre-commit run --all-files
         env:
           SKIP: "go-fmt,go-vet"
-
-      - name: Setup golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v2.7.2
 
       - name: Run golangci-lint
         run: golangci-lint run
