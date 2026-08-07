@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up tools (Go, Node, golangci-lint) via mise
+        uses: jdx/mise-action@v4
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: frontend
+
+      - name: Build frontend (produces embedded dist/)
+        run: npm run build
+        working-directory: frontend
+
+      - name: Run pre-commit checks
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files
+        env:
+          SKIP: "go-fmt,go-vet"
+
+      - name: Run golangci-lint
+        run: golangci-lint run
+
+      - name: Run backend tests
+        run: go test -v ./...
+
+      - name: Run frontend tests
+        run: npm run test
+        working-directory: frontend
+
+      - name: Run frontend lint
+        run: npm run lint
+        working-directory: frontend

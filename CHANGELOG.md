@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- GitHub Actions CI workflow that compiles and runs all tests (pre-commit, golangci-lint, backend and frontend tests) on push and pull requests
+- Renovate configuration for automated dependency update PRs (frontend, Go, and Docker)
+
+### Changed
+
+- Docker image now runs as a non-root user (`stern`) instead of root
+- Centralized developer tooling versions (Go, Node, golangci-lint) in a single `mise.toml`, consumed by CI via `jdx/mise-action` and auto-updated by Renovate
+- Docker frontend build stage now uses Node 24 instead of the deprecated Node 20 base image
+- CI now provisions all tool runtimes through mise instead of separate setup-node/setup-go/golangci-lint actions
+
+### Fixed
+
+- CI failing when eslint was not yet installed before the pre-commit checks ran
+- golangci-lint failing to run because the pinned version was built with an older Go toolchain than the module targets
+
 ## [0.5.0] - 2026-08-06
 
 ### Added

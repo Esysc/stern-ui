@@ -62,7 +62,9 @@ func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
 	defer w.mu.Unlock()
 
 	// Set write deadline for each message
-	w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return 0, err
+	}
 
 	// Write each line to the websocket
 	lines := bytes.Split(p, []byte("\n"))
@@ -114,7 +116,9 @@ func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
 func (w *WebSocketWriter) WriteMessage(messageType int, data []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
 	return w.conn.WriteMessage(messageType, data)
 }
 
@@ -203,8 +207,9 @@ func parseNumericParams(params streamParams) (*int64, time.Duration, int) {
 	var tailLines *int64
 	if params.tail != "" && params.tail != "-1" {
 		var t int64
-		fmt.Sscanf(params.tail, "%d", &t)
-		tailLines = &t
+		if _, err := fmt.Sscanf(params.tail, "%d", &t); err == nil {
+			tailLines = &t
+		}
 	}
 
 	var sinceDuration time.Duration
@@ -229,7 +234,9 @@ func parseNumericParams(params streamParams) (*int64, time.Duration, int) {
 
 	maxReq := 50
 	if params.maxLogRequests != "" {
-		fmt.Sscanf(params.maxLogRequests, "%d", &maxReq)
+		if _, err := fmt.Sscanf(params.maxLogRequests, "%d", &maxReq); err != nil {
+			maxReq = 50
+		}
 	}
 
 	return tailLines, sinceDuration, maxReq
@@ -498,11 +505,10 @@ func setupWebSocketHandlers(conn *websocket.Conn, ctx context.Context, cancel co
 	)
 
 	// Set initial read deadline and pong handler
-	conn.SetReadDeadline(time.Now().Add(pongWait))
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
+	_ = conn.SetReadDeadline(time.Now().Add(pongWait))
 
 	// Start a goroutine to read (and discard) messages from client
 	go func() {
@@ -565,7 +571,7 @@ func streamLogs(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	writer := &WebSocketWriter{conn: conn, buf: &bytes.Buffer{}}
 

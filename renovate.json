@@ -1,0 +1,59 @@
+{
+  "extends": ["config:base", ":dependencyDashboard", ":automergeDisabled"],
+  "labels": ["dependencies", "automated pr"],
+  "schedule": ["before 3am on monday"],
+  "rangeStrategy": "bump",
+  "vulnerabilityAlerts": {
+    "labels": ["security", "dependencies"],
+    "schedule": ["every day"],
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "matchPackagePatterns": ["*"],
+      "matchPaths": ["frontend/package.json"],
+      "groupName": "frontend dependencies",
+      "groupSlug": "frontend",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchPackagePatterns": ["*"],
+      "matchPaths": ["go.mod"],
+      "groupName": "go dependencies",
+      "groupSlug": "go",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchPackagePatterns": ["*"],
+      "matchPaths": ["Dockerfile"],
+      "groupName": "docker base image",
+      "groupSlug": "docker-base",
+      "automerge": true,
+      "automergeType": "pr",
+      "schedule": ["before 3am on monday"]
+    },
+    {
+      "matchManagers": ["mise"],
+      "groupName": "tool versions",
+      "groupSlug": "tool-versions",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "groupSlug": "github-actions",
+      "automerge": true,
+      "automergeType": "pr"
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 3am on monday"],
+    "automerge": false
+  },
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2
+}
