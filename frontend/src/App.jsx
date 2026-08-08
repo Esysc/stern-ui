@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header, StreamPanel } from './components';
 import { EventsPanel, HealthPanel, ApplyPanel, ResourcesPanel } from './components/management';
 import { clearAllSettings, deleteConfig, loadAllConfigs } from './utils/storage';
-import { getApiBase } from './utils/helpers';
+import { cachedFetch } from './utils/cache';
 
 const CLUSTER_KEY = 'stern-ui-cluster';
 
@@ -22,14 +22,12 @@ function App() {
   });
 
   useEffect(() => {
-    const base = getApiBase();
-    fetch(`${base}/api/contexts`)
-      .then((r) => (r.ok ? r.json() : []))
+    cachedFetch('/api/contexts', { ttl: 60_000 })
+      .catch(() => [])
       .then((list) => {
         setContexts(list);
         setContext((prev) => prev || (list[0] || ''));
-      })
-      .catch(() => setContexts([]));
+      });
   }, []);
 
   useEffect(() => {

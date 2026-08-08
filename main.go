@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -43,10 +44,46 @@ func debugLog(format string, args ...interface{}) {
 var frontendFS embed.FS
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin:      func(r *http.Request) bool { return true },
+	CheckOrigin:      checkWebSocketOrigin,
 	HandshakeTimeout: 10 * time.Second,
 	ReadBufferSize:   4096,
 	WriteBufferSize:  4096,
+}
+
+// allowedOrigins contains host[:port] values (besides the request's own host)
+// that may open WebSocket connections. Defaults to the Vite dev server so the
+// frontend can reach the backend during development. Extend via ALLOWED_ORIGINS.
+var allowedOrigins = func() map[string]struct{} {
+	set := map[string]struct{}{
+		"localhost:5173": {},
+		"127.0.0.1:5173": {},
+	}
+	for _, o := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
+		if o = strings.ToLower(strings.TrimSpace(o)); o != "" {
+			set[o] = struct{}{}
+		}
+	}
+	return set
+}()
+
+// checkWebSocketOrigin restricts WebSocket upgrades to the app's own origin
+// (or explicitly allowed origins), so third-party pages can't proxy the
+// kubectl/stern operations exposed by the backend to localhost.
+func checkWebSocketOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Non-browser clients (curl, tests, desktop apps) don't send Origin.
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	_, ok := allowedOrigins[strings.ToLower(u.Host)]
+	return ok
 }
 
 // WebSocketWriter writes stern output to a WebSocket connection
@@ -73,36 +110,8 @@ func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
 			continue
 		}
 
-		// Filter by untilTime if set
-		if !w.untilTime.IsZero() {
-			var logEntry map[string]interface{}
-			if err := json.Unmarshal(line, &logEntry); err == nil {
-				// Extract timestamp from the message field
-				// Log format: [2026-01-15T14:44:37.663Z] "GET /adm/v1/administrator/ping..."
-				if message, ok := logEntry["message"].(string); ok && len(message) > 0 {
-					// Check if message starts with [
-					if message[0] == '[' {
-						// Find the closing bracket
-						endIdx := -1
-						for i := 1; i < len(message) && i < 30; i++ {
-							if message[i] == ']' {
-								endIdx = i
-								break
-							}
-						}
-
-						if endIdx > 0 {
-							timestampStr := message[1:endIdx]
-							if logTime, err := time.Parse(time.RFC3339Nano, timestampStr); err == nil {
-								// If log is after untilTime, skip it
-								if logTime.After(w.untilTime) {
-									continue
-								}
-							}
-						}
-					}
-				}
-			}
+		if w.shouldSkipLine(line) {
+			continue
 		}
 
 		if err := w.conn.WriteMessage(websocket.TextMessage, line); err != nil {
@@ -110,6 +119,62 @@ func (w *WebSocketWriter) Write(p []byte) (n int, err error) {
 		}
 	}
 	return len(p), nil
+}
+
+func (w *WebSocketWriter) shouldSkipLine(line []byte) bool {
+	if w.untilTime.IsZero() {
+		return false
+	}
+
+	logTime, ok := parseLogTime(line)
+	if !ok {
+		return false
+	}
+
+	return logTime.After(w.untilTime)
+}
+
+func parseLogTime(line []byte) (time.Time, bool) {
+	var logEntry map[string]interface{}
+	if err := json.Unmarshal(line, &logEntry); err != nil {
+		return time.Time{}, false
+	}
+
+	message, ok := logEntry["message"].(string)
+	if !ok {
+		return time.Time{}, false
+	}
+
+	timestampStr, ok := extractTimestamp(message)
+	if !ok {
+		return time.Time{}, false
+	}
+
+	logTime, err := time.Parse(time.RFC3339Nano, timestampStr)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	return logTime, true
+}
+
+func extractTimestamp(message string) (string, bool) {
+	if len(message) == 0 || message[0] != '[' {
+		return "", false
+	}
+
+	maxEnd := len(message)
+	if maxEnd > 30 {
+		maxEnd = 30
+	}
+
+	for i := 1; i < maxEnd; i++ {
+		if message[i] == ']' {
+			return message[1:i], true
+		}
+	}
+
+	return "", false
 }
 
 // WriteMessage writes a message with the given type, protected by mutex
@@ -201,6 +266,56 @@ func createKubeClient(contextName string) (kubernetes.Interface, clientcmd.Clien
 	}
 
 	return clientset, kubeConfig, nil
+}
+
+// kubeClientEntry caches a Kubernetes client per context along with the config
+// used to build it, so multiple streams/requests reuse the same connection
+// pool instead of creating a new client per WebSocket connection.
+type kubeClientEntry struct {
+	mu         sync.Mutex
+	clientset  *kubernetes.Interface
+	kubeConfig clientcmd.ClientConfig
+}
+
+var (
+	kubeClientCache   = map[string]*kubeClientEntry{}
+	kubeClientCacheMu sync.Mutex
+)
+
+// getKubeClient returns a cached Kubernetes client for a context, creating and
+// wiring up the credential refresher on first use. Safe for concurrent use.
+func getKubeClient(contextName string) (*kubeClientEntry, error) {
+	kubeClientCacheMu.Lock()
+	if entry, ok := kubeClientCache[contextName]; ok {
+		kubeClientCacheMu.Unlock()
+		return entry, nil
+	}
+	kubeClientCacheMu.Unlock()
+
+	clientset, kubeConfig, err := createKubeClient(contextName)
+	if err != nil {
+		return nil, err
+	}
+
+	entry := &kubeClientEntry{clientset: &clientset, kubeConfig: kubeConfig}
+	startCredentialRefresher(context.Background(), entry.clientset, contextName, &entry.mu)
+
+	kubeClientCacheMu.Lock()
+	if existing, ok := kubeClientCache[contextName]; ok {
+		entry = existing
+	} else {
+		kubeClientCache[contextName] = entry
+	}
+	kubeClientCacheMu.Unlock()
+	return entry, nil
+}
+
+// snapshot returns a copy of the current client, safe in relation to the
+// background credential refresh which swaps the underlying client.
+func (e *kubeClientEntry) snapshot() kubernetes.Interface {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return *e.clientset
 }
 
 func parseNumericParams(params streamParams) (*int64, time.Duration, int) {
@@ -575,11 +690,13 @@ func streamLogs(c *gin.Context) {
 
 	writer := &WebSocketWriter{conn: conn, buf: &bytes.Buffer{}}
 
-	clientset, kubeConfig, err := createKubeClient(params.contextName)
+	clientsetEntry, err := getKubeClient(params.contextName)
 	if err != nil {
 		_ = writer.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"%s"}`, err)))
 		return
 	}
+	kubeConfig := clientsetEntry.kubeConfig
+	clientset := clientsetEntry.snapshot()
 
 	tailLines, sinceDuration, maxReq := parseNumericParams(params)
 	namespaces := buildNamespaceList(params, kubeConfig)
@@ -635,9 +752,6 @@ func streamLogs(c *gin.Context) {
 	defer cancel()
 
 	setupWebSocketHandlers(conn, ctx, cancel, writer)
-
-	var clientMutex sync.Mutex
-	startCredentialRefresher(ctx, &clientset, params.contextName, &clientMutex)
 
 	if err := stern.Run(ctx, clientset, config); err != nil {
 		_ = writer.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"error":"Stern error: %s"}`, err)))
@@ -748,7 +862,7 @@ func getPods(c *gin.Context) {
 	if allNamespaces == "true" {
 		args = append(args, "--all-namespaces")
 	} else if namespace != "" {
-		args = append(args, "-n", namespace)
+		args = append(args, "--namespace="+namespace)
 	}
 
 	cmd := exec.Command("kubectl", args...)
@@ -777,7 +891,7 @@ func getContainers(c *gin.Context) {
 	if allNamespaces == "true" {
 		args = append(args, "--all-namespaces")
 	} else if namespace != "" {
-		args = append(args, "-n", namespace)
+		args = append(args, "--namespace="+namespace)
 	}
 
 	cmd := exec.Command("kubectl", args...)
@@ -862,7 +976,7 @@ func getPodMetadata(c *gin.Context) {
 	if ctx != "" {
 		args = append([]string{"--context", ctx}, args...)
 	}
-	args = append(args, "-n", namespace)
+	args = append(args, "--namespace="+namespace)
 
 	cmd := exec.Command("kubectl", args...)
 	output, err := cmd.CombinedOutput()
@@ -891,11 +1005,12 @@ func getClusterEvents(c *gin.Context) {
 	ctxName := c.Query("context")
 	namespace := c.Query("namespace")
 
-	clientset, _, err := createKubeClient(ctxName)
+	entry, err := getKubeClient(ctxName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	clientset := entry.snapshot()
 
 	events, err := clientset.CoreV1().Events(namespace).List(c.Request.Context(), metav1.ListOptions{})
 	if err != nil {
@@ -968,11 +1083,12 @@ func getClusterHealth(c *gin.Context) {
 	ctxName := c.Query("context")
 	namespace := c.Query("namespace")
 
-	clientset, _, err := createKubeClient(ctxName)
+	entry, err := getKubeClient(ctxName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	clientset := entry.snapshot()
 
 	ctx := c.Request.Context()
 	nodes, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
@@ -1142,7 +1258,7 @@ func getClusterResources(c *gin.Context) {
 
 	args := []string{"--context", ctxName, "get", resource, "-o", "json"}
 	if namespace != "" && !clusterScopedResources[kind] {
-		args = append(args, "-n", namespace)
+		args = append(args, "--namespace="+namespace)
 	}
 
 	cmd := exec.Command("kubectl", args...)
@@ -1196,7 +1312,7 @@ func getResourceDetail(c *gin.Context) {
 
 	args := []string{"--context", ctxName, "get", resource, name, "-o", "yaml"}
 	if namespace != "" && !clusterScopedResources[kind] {
-		args = append(args, "-n", namespace)
+		args = append(args, "--namespace="+namespace)
 	}
 
 	cmd := exec.Command("kubectl", args...)
