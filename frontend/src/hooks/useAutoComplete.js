@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getApiBase } from '../utils/helpers';
+import { cachedFetch } from '../utils/cache';
 
 /**
  * Custom hook for fetching autocomplete suggestions from the K8s API
@@ -16,13 +16,14 @@ export function useAutoComplete(context, namespace) {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const base = getApiBase();
 
       try {
         const [nsRes, ctxRes, nodeRes] = await Promise.all([
-          fetch(`${base}/api/namespaces?context=${context || ''}`).then(r => r.ok ? r.json() : []),
-          fetch(`${base}/api/contexts`).then(r => r.ok ? r.json() : []),
-          fetch(`${base}/api/nodes?context=${context || ''}`).then(r => r.ok ? r.json() : [])
+          cachedFetch(`/api/namespaces?context=${context || ''}`, { ttl: 60_000 })
+            .catch(() => []),
+          cachedFetch('/api/contexts', { ttl: 60_000 }).catch(() => []),
+          cachedFetch(`/api/nodes?context=${context || ''}`, { ttl: 60_000 })
+            .catch(() => [])
         ]);
         setNamespaces(nsRes || []);
         setContexts(ctxRes || []);
@@ -54,8 +55,6 @@ export function useAutoComplete(context, namespace) {
   // Fetch pods when namespace or context changes
   useEffect(() => {
     const fetchPods = async () => {
-      const base = getApiBase();
-
       // Only fetch if namespace is in the valid list
       if (!namespace || !namespaces.includes(namespace)) {
         setPods([]);
@@ -67,12 +66,9 @@ export function useAutoComplete(context, namespace) {
         if (context) params.set('context', context);
         params.set('namespace', namespace);
 
-        const res = await fetch(`${base}/api/pods?${params}`);
-        if (res.ok) {
-          setPods(await res.json() || []);
-        } else {
-          setPods([]);
-        }
+        const res = await cachedFetch(`/api/pods?${params}`, { ttl: 8_000 })
+          .catch(() => []);
+        setPods(res || []);
       } catch (e) {
         console.error('Failed to fetch pods:', e);
         setPods([]);
@@ -85,8 +81,6 @@ export function useAutoComplete(context, namespace) {
   // Fetch containers when namespace or context changes
   useEffect(() => {
     const fetchContainers = async () => {
-      const base = getApiBase();
-
       // Only fetch if namespace is in the valid list
       if (!namespace || !namespaces.includes(namespace)) {
         setContainers([]);
@@ -98,12 +92,9 @@ export function useAutoComplete(context, namespace) {
         if (context) params.set('context', context);
         params.set('namespace', namespace);
 
-        const res = await fetch(`${base}/api/containers?${params}`);
-        if (res.ok) {
-          setContainers(await res.json() || []);
-        } else {
-          setContainers([]);
-        }
+        const res = await cachedFetch(`/api/containers?${params}`, { ttl: 8_000 })
+          .catch(() => []);
+        setContainers(res || []);
       } catch (e) {
         console.error('Failed to fetch containers:', e);
         setContainers([]);

@@ -45,45 +45,55 @@ export function countLogLevels(logs) {
 }
 
 /**
- * Helper: Match text against pattern (regex or string)
+ * Helper: Compile a pattern into a case-insensitive regex.
+ * Returns null for empty patterns and the raw string when the regex
+ * fails to compile (falling back to a substring match).
  */
-function matchesPattern(text, pattern) {
+function compilePattern(pattern) {
+  if (pattern instanceof RegExp) return pattern;
+  if (!pattern) return null;
   try {
-    const regex = new RegExp(pattern, 'i');
-    return regex.test(text);
+    return new RegExp(pattern, 'i');
   } catch {
-    return text.toLowerCase().includes(pattern.toLowerCase());
+    return pattern;
   }
 }
 
 /**
- * Helper: Filter by pod query
+ * Precompile log filters so they aren't rebuilt for every log line.
  */
-function filterByQuery(logs, query) {
-  if (!query || query === '.') return logs;
-  return logs.filter(log => matchesPattern(log.pod || '', query));
+export function compileLogFilters({ query, container } = {}) {
+  return {
+    query: compilePattern(query && query !== '.' ? query : null),
+    container: compilePattern(container
+      ? (typeof container === 'string' && container.includes('/')
+        ? container.split('/').pop()
+        : container)
+      : null)
+  };
 }
 
 /**
- * Helper: Filter by container
+ * Helper: Match text against a precompiled pattern (regex or fallback string)
  */
-function filterByContainer(logs, container) {
-  if (!container) return logs;
-  const containerName = container.includes('/') ? container.split('/').pop() : container;
-  return logs.filter(log => matchesPattern(log.container || '', containerName));
+function matchesCompiled(text, pattern) {
+  if (pattern instanceof RegExp) {
+    return pattern.test(text);
+  }
+  return text.toLowerCase().includes(pattern.toLowerCase());
 }
 
 /**
- * Filter logs by query and container
+ * Filter logs by query and container using precompiled filters.
  * Applies CLIENT-SIDE filters that work on already-fetched logs without reconnection.
  * Server-side filters (namespace) require reconnection.
+ * Accepts either plain strings (compiled on each call) or the output of
+ * compileLogFilters() to avoid rebuilding regexes per log line.
  */
-export function filterLogs(logs, { query, container }) {
-  let result = logs;
-
-  // Client-side filters (apply to already-fetched logs)
-  result = filterByQuery(result, query);
-  result = filterByContainer(result, container);
-
-  return result;
+export function filterLogs(logs, filters = {}) {
+  const compiled = compileLogFilters(filters);
+  return logs.filter(log =>
+    (!compiled.query || matchesCompiled(log.pod || '', compiled.query)) &&
+    (!compiled.container || matchesCompiled(log.container || '', compiled.container))
+  );
 }

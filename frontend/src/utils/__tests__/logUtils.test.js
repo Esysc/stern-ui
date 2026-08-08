@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectLogLevel, filterLogs, buildPodColorMap } from '../logUtils';
+import { detectLogLevel, filterLogs, buildPodColorMap, compileLogFilters } from '../logUtils';
 
 describe('detectLogLevel', () => {
   it('detects error level', () => {
@@ -70,6 +70,30 @@ describe('filterLogs', () => {
   it('handles empty logs array', () => {
     const result = filterLogs([], { query: 'test', container: '' });
     expect(result).toHaveLength(0);
+  });
+});
+
+describe('compileLogFilters', () => {
+  const sampleLogs = [
+    { message: 'Error occurred', pod: 'api-pod', container: 'api', level: 'error' },
+    { message: 'Warning issued', pod: 'web-pod', container: 'nginx', level: 'warn' },
+    { message: 'Info message', pod: 'api-pod', container: 'api', level: 'info' },
+  ];
+
+  it('precompiles filters and reuses them across calls', () => {
+    const filters = compileLogFilters({ query: 'api-pod', container: 'api' });
+    expect(filterLogs(sampleLogs, filters)).toHaveLength(2);
+    expect(filterLogs(sampleLogs, filters)).toHaveLength(2);
+  });
+
+  it('treats the default query of dot as no filter', () => {
+    const filters = compileLogFilters({ query: '.', container: '' });
+    expect(filterLogs(sampleLogs, filters)).toHaveLength(3);
+  });
+
+  it('strips pod/container format from container filters', () => {
+    const filters = compileLogFilters({ query: '.', container: 'api-pod/api' });
+    expect(filterLogs(sampleLogs, filters)).toHaveLength(2);
   });
 });
 

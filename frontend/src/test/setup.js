@@ -3,6 +3,14 @@ import '@testing-library/jest-dom';
 // Mock scrollIntoView
 globalThis.HTMLElement.prototype.scrollIntoView = function() {};
 
+// Mock ResizeObserver (jsdom doesn't implement it)
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver = globalThis.ResizeObserver || ResizeObserverMock;
+
 // Mock localStorage with a fresh store for each test
 const createLocalStorageMock = () => {
   let store = {};

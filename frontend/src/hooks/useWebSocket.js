@@ -79,8 +79,9 @@ function buildWsParams(config) {
 /**
  * Parse log line into log entry
  */
-function parseLogLine(line) {
+function parseLogLine(line, id) {
   return {
+    id,
     timestamp: formatTimestamp(line.timestamp),
     pod: line.podName,
     container: line.containerName,
@@ -95,8 +96,9 @@ function parseLogLine(line) {
 /**
  * Create fallback log entry for parse errors
  */
-function createFallbackLogEntry(data) {
+function createFallbackLogEntry(data, id) {
   return {
+    id,
     timestamp: formatTimestamp(),
     pod: 'system',
     container: 'parser',
@@ -120,6 +122,7 @@ export function useWebSocket() {
   const wsRef = useRef(null);
   const configRef = useRef(null);
   const untilTimeRef = useRef(null);
+  const logIdRef = useRef(0);
 
   // Keep refs in sync
   useEffect(() => {
@@ -131,10 +134,44 @@ export function useWebSocket() {
     isPausedRef.current = isPaused;
   }, [isPaused]);
 
+  // Close the socket when the component unmounts so streams don't leak.
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, []);
+
+  const appendLog = useCallback((logEntry) => {
+    setLogs(prev => {
+      if (prev.length < MAX_LOGS) {
+        return prev.concat([logEntry]);
+      }
+      return prev.slice(-(MAX_LOGS - 1)).concat([logEntry]);
+    });
+  }, []);
+
+  const pushToBuffer = useCallback((logEntry) => {
+    pauseBufferRef.current.push(logEntry);
+    if (pauseBufferRef.current.length > MAX_BUFFER) {
+      pauseBufferRef.current = pauseBufferRef.current.slice(-MAX_BUFFER);
+    }
+  }, []);
+
+  const routeLog = useCallback((logEntry) => {
+    if (isPausedRef.current) {
+      pushToBuffer(logEntry);
+    } else {
+      appendLog(logEntry);
+    }
+  }, [appendLog, pushToBuffer]);
+
   const handleLogMessage = useCallback((event) => {
     try {
       const line = JSON.parse(event.data);
-      const logEntry = parseLogLine(line);
+      const logEntry = parseLogLine(line, logIdRef.current++);
 
       // Filter by untilTime if in absolute mode
       if (untilTimeRef.current) {
@@ -146,21 +183,11 @@ export function useWebSocket() {
         }
       }
 
-      if (isPausedRef.current) {
-        pauseBufferRef.current.push(logEntry);
-        if (pauseBufferRef.current.length > MAX_BUFFER) {
-          pauseBufferRef.current = pauseBufferRef.current.slice(-MAX_BUFFER);
-        }
-      } else {
-        setLogs(prev => [...prev, logEntry].slice(-MAX_LOGS));
-      }
+      routeLog(logEntry);
     } catch {
-      const logEntry = createFallbackLogEntry(event.data);
-      if (!isPausedRef.current) {
-        setLogs(prev => [...prev.slice(-(MAX_LOGS - 1)), logEntry]);
-      }
+      routeLog(createFallbackLogEntry(event.data, logIdRef.current++));
     }
-  }, []);
+  }, [routeLog]);
 
   const connect = useCallback((config) => {
     // Close existing connection using ref

@@ -251,12 +251,31 @@ func TestResourceDetailRejectsBadName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// TestCORSUpgrader tests that the WebSocket upgrader allows all origins
-func TestCORSUpgrader(t *testing.T) {
-	// Verify the upgrader is configured to allow all origins
-	dummyReq, _ := http.NewRequest("GET", "/", nil)
-	dummyReq.Header.Set("Origin", "http://localhost:5173")
+// TestWSOriginPolicy verifies the WebSocket upgrader origin restrictions
+func TestWSOriginPolicy(t *testing.T) {
+	t.Run("allows same origin", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.Host = "localhost:8080"
+		req.Header.Set("Origin", "http://localhost:8080")
+		assert.True(t, upgrader.CheckOrigin(req), "Same-origin requests should be allowed")
+	})
 
-	result := upgrader.CheckOrigin(dummyReq)
-	assert.True(t, result, "Upgrader should allow all origins")
+	t.Run("allows Vite dev origin", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.Host = "localhost:8080"
+		req.Header.Set("Origin", "http://localhost:5173")
+		assert.True(t, upgrader.CheckOrigin(req), "Vite dev origin should be allowed")
+	})
+
+	t.Run("rejects unknown origin", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.Host = "localhost:8080"
+		req.Header.Set("Origin", "http://evil.example.com")
+		assert.False(t, upgrader.CheckOrigin(req), "Unknown origins must be rejected")
+	})
+
+	t.Run("allows non-browser clients without Origin", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		assert.True(t, upgrader.CheckOrigin(req), "Non-browser clients without Origin should be allowed")
+	})
 }

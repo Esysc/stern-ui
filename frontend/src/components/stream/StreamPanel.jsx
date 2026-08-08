@@ -10,6 +10,7 @@ import { saveConfig } from '../../utils/storage';
 import {
   buildPodColorMap,
   countLogLevels,
+  compileLogFilters,
   filterLogs
 } from '../../utils/logUtils';
 import { DEFAULT_CONFIG } from '../../constants';
@@ -90,13 +91,15 @@ export function StreamPanel({ streamId, initialConfig, onStreamStateChange, isAc
     return countLogLevels(logs);
   }, [logs, isActive]);
 
+  // Precompile client-side filters once per config change (not per log line)
+  const logFilters = useMemo(() => {
+    return compileLogFilters({ query: config.query, container: config.container });
+  }, [config.query, config.container]);
+
   const filteredLogs = useMemo(() => {
     if (!isActive) return logs;
-    return filterLogs(logs, {
-      query: config.query,
-      container: config.container
-    });
-  }, [logs, config.query, config.container, isActive]);
+    return filterLogs(logs, logFilters);
+  }, [logs, logFilters, isActive]);
 
   const handleConnect = useCallback(() => {
     // eslint-disable-next-line no-unused-vars

@@ -9,9 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Virtualized rendering of log rows so DOM work stays constant regardless of how many logs are buffered
+- Client-side response caching with in-flight deduplication for autocomplete and cluster UI data
+- WebSocket origin allowlist (same-origin or `ALLOWED_ORIGINS`) to prevent arbitrary web pages from proxying this backend
+- Precompiled client-side log filters reused across log lines
+
 ### Changed
 
+- Reuse a single Kubernetes client per context across WebSocket streams and cluster API endpoints
+- Autocomplete data cached with TTLs (60s for namespaces/contexts/nodes, 8s for pods/containers)
+- Log entries carry a stable monotonic id used as the render key, avoiding row remounts when the buffer rolls over
+- Log append path avoids a double array copy for every incoming message
+
 ### Fixed
+
+- WebSocket connections no longer leak when a stream panel unmounts (e.g. when switching views)
+- Parse-failure log entries are now buffered while paused instead of being dropped
+- `kubectl` namespace filters use `--namespace=` form so a value starting with `-` cannot be parsed as a flag
 
 ## [0.5.1] - 2026-08-07
 
