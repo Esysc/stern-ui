@@ -33,12 +33,15 @@ export function LogViewer({
 
     update();
     el.addEventListener('scroll', update, { passive: true });
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
+    let observer;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(update);
+      observer.observe(el);
+    }
 
     return () => {
       el.removeEventListener('scroll', update);
-      observer.disconnect();
+      observer?.disconnect();
     };
   }, [autoScroll]);
 
