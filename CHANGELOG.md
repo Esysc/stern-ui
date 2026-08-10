@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Client-side response caching with in-flight deduplication for autocomplete and cluster UI data
 - WebSocket origin allowlist (same-origin or `ALLOWED_ORIGINS`) to prevent arbitrary web pages from proxying this backend
 - Precompiled client-side log filters reused across log lines
+- Log message keyword and level filtering via Search and Level controls in stream panels
+- Automatic WebSocket reconnection when pod/container selector changes
 
 ### Changed
 
@@ -26,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - WebSocket connections no longer leak when a stream panel unmounts (e.g. when switching views)
 - Parse-failure log entries are now buffered while paused instead of being dropped
 - `kubectl` namespace filters use `--namespace=` form so a value starting with `-` cannot be parsed as a flag
+- Stale Kubernetes context from localStorage validated against available contexts on app load
+- Context cleanup on error targets the correct localStorage key (`stern-ui-cluster`)
+- Default query `.` no longer reappears after clearing the pod selector
+- Unrecognized log lines default to `info` level instead of `unknown`
+- Search and Level filter inputs are now editable (removed double-unwrapping of onChange values)
+- Log lines are copyable (removed `select-none` CSS on pod name)
+- Credential refresher goroutine only starts for the cache entry that wins insertion (prevents leak on race)
+- Virtual row height enforced via inline style to match virtualization scroll math
+- Stored context preserved on transient `/api/contexts` fetch failure
+- ResizeObserver guarded for environments where it is unavailable
 
 ## [0.5.1] - 2026-08-07
 
