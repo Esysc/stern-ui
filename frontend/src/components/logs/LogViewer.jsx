@@ -135,7 +135,7 @@ export function LogViewer({
                       className="flex gap-2 hover:bg-gray-900/50 whitespace-nowrap"
                     >
                       <span
-                        className="font-semibold select-none shrink-0"
+                        className="font-semibold shrink-0"
                         style={{ color: podColorMap[log.pod] || '#888' }}
                       >
                         [{log.pod}]

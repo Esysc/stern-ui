@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { StreamConfig } from './StreamConfig';
 import { StreamActions } from './StreamActions';
-import { LogViewer, LogStatusBar } from '../logs';
+import { LogViewer, LogStatusBar, LogFilters } from '../logs';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useAutoComplete } from '../../hooks/useAutoComplete';
 import { useDisplaySettings } from '../../hooks/useDisplaySettings';
@@ -23,9 +23,12 @@ export function StreamPanel({ streamId, initialConfig, onStreamStateChange, isAc
     return {
       ...DEFAULT_CONFIG,
       ...initialConfig,
-      query: initialConfig?.query || '.'
+      query: initialConfig?.query ?? '.'
     };
   });
+
+  const [searchFilter, setSearchFilter] = useState('');
+  const [levelFilter, setLevelFilter] = useState('all');
 
   const displaySettings = useDisplaySettings();
 
@@ -98,8 +101,16 @@ export function StreamPanel({ streamId, initialConfig, onStreamStateChange, isAc
 
   const filteredLogs = useMemo(() => {
     if (!isActive) return logs;
-    return filterLogs(logs, logFilters);
-  }, [logs, logFilters, isActive]);
+    let result = filterLogs(logs, logFilters);
+    if (searchFilter.trim()) {
+      const q = searchFilter.toLowerCase();
+      result = result.filter(log => (log.message || '').toLowerCase().includes(q));
+    }
+    if (levelFilter !== 'all') {
+      result = result.filter(log => log.level === levelFilter);
+    }
+    return result;
+  }, [logs, logFilters, isActive, searchFilter, levelFilter]);
 
   const handleConnect = useCallback(() => {
     // eslint-disable-next-line no-unused-vars
@@ -126,6 +137,7 @@ export function StreamPanel({ streamId, initialConfig, onStreamStateChange, isAc
       prev.allNamespaces !== curr.allNamespaces ||
       prev.node !== curr.node ||
       prev.context !== curr.context ||
+      prev.query !== curr.query ||
       prev.selector !== curr.selector ||
       prev.tail !== curr.tail ||
       prev.initContainers !== curr.initContainers ||
@@ -254,6 +266,19 @@ export function StreamPanel({ streamId, initialConfig, onStreamStateChange, isAc
               <span className="text-gray-400">x</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {isConnected && (
+        <div className="mb-4">
+          <LogFilters
+            searchFilter={searchFilter}
+            onSearchChange={setSearchFilter}
+            levelFilter={levelFilter}
+            onLevelChange={setLevelFilter}
+            onResetFilters={() => { setSearchFilter(''); setLevelFilter('all'); }}
+            levelCounts={levelCounts}
+          />
         </div>
       )}
 

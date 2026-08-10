@@ -35,10 +35,7 @@ export function useAutoComplete(context, namespace) {
         // Clear localStorage to prevent stuck state
         if (context) {
           console.warn('Context appears invalid, clearing localStorage:', context);
-          // Clear all stern-ui config from localStorage
-          Object.keys(localStorage)
-            .filter(key => key.startsWith('stern-ui-config-'))
-            .forEach(key => localStorage.removeItem(key));
+          localStorage.removeItem('stern-ui-cluster');
         }
 
         setNamespaces([]);

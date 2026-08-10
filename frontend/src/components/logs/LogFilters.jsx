@@ -22,7 +22,7 @@ const LogFiltersComponent = ({
       <InputField
         label="Search"
         value={searchFilter}
-        onChange={(e) => onSearchChange(e.target.value)}
+        onChange={onSearchChange}
         placeholder="Filter logs..."
         className="flex-1"
       />
@@ -30,7 +30,7 @@ const LogFiltersComponent = ({
       <SelectField
         label="Level"
         value={levelFilter}
-        onChange={(e) => onLevelChange(e.target.value)}
+        onChange={onLevelChange}
         options={LOG_LEVELS.map(level => ({
           value: level,
           label: level === 'all'

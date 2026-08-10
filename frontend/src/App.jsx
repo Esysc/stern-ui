@@ -14,7 +14,7 @@ function nextStreamId(streams) {
 function App() {
   const [view, setView] = useState('logs');
   const [contexts, setContexts] = useState([]);
-  const [context, setContext] = useState(() => globalThis.localStorage.getItem(CLUSTER_KEY) || '');
+  const [context, setContext] = useState('');
   const [streams, setStreams] = useState(() => {
     const saved = loadAllConfigs();
     if (saved.length > 0) return saved;
@@ -26,7 +26,12 @@ function App() {
       .catch(() => [])
       .then((list) => {
         setContexts(list);
-        setContext((prev) => prev || (list[0] || ''));
+        const stored = globalThis.localStorage.getItem(CLUSTER_KEY);
+        if (stored && list.includes(stored)) {
+          setContext(stored);
+        } else {
+          setContext(list[0] || '');
+        }
       });
   }, []);
 

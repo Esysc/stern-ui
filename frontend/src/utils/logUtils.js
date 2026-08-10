@@ -5,11 +5,11 @@ import { hashString } from './helpers';
  * Detect log level from message content
  */
 export function detectLogLevel(message) {
-  if (!message) return 'unknown';
+  if (!message) return 'info';
   for (const [level, { pattern }] of Object.entries(LOG_LEVEL_PATTERNS)) {
     if (pattern.test(message)) return level;
   }
-  return 'unknown';
+  return 'info';
 }
 
 /**
