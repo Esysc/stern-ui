@@ -136,6 +136,7 @@ export function LogViewer({
                     <div
                       key={log.id ?? `${log.pod}-${absoluteIdx}-${log.message || log.text}`}
                       className="flex gap-2 hover:bg-gray-900/50 whitespace-nowrap"
+                      style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
                     >
                       <span
                         className="font-semibold shrink-0"

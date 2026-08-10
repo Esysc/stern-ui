@@ -29,9 +29,10 @@ function App() {
         const stored = globalThis.localStorage.getItem(CLUSTER_KEY);
         if (stored && list.includes(stored)) {
           setContext(stored);
-        } else {
-          setContext(list[0] || '');
+        } else if (list.length > 0) {
+          setContext(list[0]);
         }
+        // ponytail: on empty list (fetch failed), keep stored context — no setContext here
       });
   }, []);
 
