@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header, StreamPanel } from './components';
 import { EventsPanel, HealthPanel, ApplyPanel, ResourcesPanel } from './components/management';
 import { clearAllSettings, deleteConfig, loadAllConfigs } from './utils/storage';
-import { getApiBase } from './utils/helpers';
+import { cachedFetch } from './utils/cache';
 
 const CLUSTER_KEY = 'stern-ui-cluster';
 
@@ -14,7 +14,7 @@ function nextStreamId(streams) {
 function App() {
   const [view, setView] = useState('logs');
   const [contexts, setContexts] = useState([]);
-  const [context, setContext] = useState(() => globalThis.localStorage.getItem(CLUSTER_KEY) || '');
+  const [context, setContext] = useState('');
   const [streams, setStreams] = useState(() => {
     const saved = loadAllConfigs();
     if (saved.length > 0) return saved;
@@ -22,14 +22,18 @@ function App() {
   });
 
   useEffect(() => {
-    const base = getApiBase();
-    fetch(`${base}/api/contexts`)
-      .then((r) => (r.ok ? r.json() : []))
+    cachedFetch('/api/contexts', { ttl: 60_000 })
+      .catch(() => [])
       .then((list) => {
         setContexts(list);
-        setContext((prev) => prev || (list[0] || ''));
-      })
-      .catch(() => setContexts([]));
+        const stored = globalThis.localStorage.getItem(CLUSTER_KEY);
+        if (stored && list.includes(stored)) {
+          setContext(stored);
+        } else if (list.length > 0) {
+          setContext(list[0]);
+        }
+        // ponytail: on empty list (fetch failed), keep stored context — no setContext here
+      });
   }, []);
 
   useEffect(() => {
