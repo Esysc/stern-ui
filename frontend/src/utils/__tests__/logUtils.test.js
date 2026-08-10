@@ -19,10 +19,10 @@ describe('detectLogLevel', () => {
     expect(detectLogLevel('TRACE: entering function')).toBe('debug');
   });
 
-  it('returns unknown for unrecognized patterns', () => {
-    expect(detectLogLevel('Just a regular message')).toBe('unknown');
-    expect(detectLogLevel('')).toBe('unknown');
-    expect(detectLogLevel(null)).toBe('unknown');
+  it('returns info for unrecognized patterns', () => {
+    expect(detectLogLevel('Just a regular message')).toBe('info');
+    expect(detectLogLevel('')).toBe('info');
+    expect(detectLogLevel(null)).toBe('info');
   });
 });
 
