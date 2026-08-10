@@ -298,15 +298,16 @@ func getKubeClient(contextName string) (*kubeClientEntry, error) {
 	}
 
 	entry := &kubeClientEntry{clientset: &clientset, kubeConfig: kubeConfig}
-	startCredentialRefresher(context.Background(), entry.clientset, contextName, &entry.mu)
 
 	kubeClientCacheMu.Lock()
 	if existing, ok := kubeClientCache[contextName]; ok {
-		entry = existing
-	} else {
-		kubeClientCache[contextName] = entry
+		kubeClientCacheMu.Unlock()
+		return existing, nil
 	}
+	kubeClientCache[contextName] = entry
 	kubeClientCacheMu.Unlock()
+
+	startCredentialRefresher(context.Background(), entry.clientset, contextName, &entry.mu)
 	return entry, nil
 }
 
