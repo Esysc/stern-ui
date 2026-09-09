@@ -75,4 +75,45 @@ describe('LogViewer', () => {
     render(<LogViewer logs={logs} />);
     expect(screen.getByText('raw log line without message')).toBeInTheDocument();
   });
+
+  it('accounts for measured row heights in the scroll geometry', () => {
+    const logs = Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      pod: 'web-1',
+      level: 'info',
+      message: `line ${i}`
+    }));
+
+    // jsdom reports no layout, so give rows a default height and simulate one
+    // wrapped row being taller than ROW_HEIGHT.
+    const proto = HTMLElement.prototype;
+    const original = Object.getOwnPropertyDescriptor(proto, 'offsetHeight');
+    Object.defineProperty(proto, 'offsetHeight', {
+      configurable: true,
+      get() { return 20; }
+    });
+
+    try {
+      const { container, rerender } = render(<LogViewer logs={logs} />);
+      const rows = container.querySelectorAll('.whitespace-pre-wrap');
+      Object.defineProperty(rows[0], 'offsetHeight', { value: 60, configurable: true });
+
+      rerender(<LogViewer logs={logs} />);
+
+      const spacers = container.querySelectorAll('[aria-hidden="true"]');
+      const topSpacer = parseFloat(spacers[0].style.height);
+      const bottomSpacer = parseFloat(spacers[1].style.height);
+      const renderedRows = container.querySelectorAll('.whitespace-pre-wrap');
+      const renderedHeight = Array.from(renderedRows).reduce(
+        (sum, row) => sum + row.offsetHeight,
+        0
+      );
+
+      // 29 rows at 20px + 1 wrapped row at 60px = 640px total scroll height.
+      expect(topSpacer + renderedHeight + bottomSpacer).toBe(640);
+    } finally {
+      if (original) Object.defineProperty(proto, 'offsetHeight', original);
+      else delete proto.offsetHeight;
+    }
+  });
 });
