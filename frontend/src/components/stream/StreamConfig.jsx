@@ -44,15 +44,13 @@ const StreamConfigComponent = ({
         selected={selected}
         onChange={(newSelected) => {
           if (newSelected.length === 0) {
-            updateConfig('container', '');
-            updateConfig('query', '.');
+            onChange({ ...config, container: '', query: '.' });
             return;
           }
           // A single whole-pod selection keeps using the plain "query" field
           // for backward compatibility with saved configs and manual regex entry.
           if (newSelected.length === 1 && !newSelected[0].includes('/')) {
-            updateConfig('container', '');
-            updateConfig('query', newSelected[0]);
+            onChange({ ...config, container: '', query: newSelected[0] });
             return;
           }
           onChange({ ...config, container: newSelected.join(','), query: '.' });
