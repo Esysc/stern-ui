@@ -9,9 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Select multiple containers across different pods at once without reconnecting
+- Select an entire pod (all of its containers) with a single checkbox, including a partial (indeterminate) selection state
+- Word-wrap long log lines vertically instead of overflowing horizontally
+
 ### Changed
 
+- Pod/container picker is now multi-select with removable chips
+- Changing the selected containers automatically reconnects the stream
+- Log viewer measures real row heights so wrapped lines scroll accurately
+
 ### Fixed
+
+- Clearing the container selection now actually clears the stored container value
+- Virtualized log rendering accounts for variable-height (wrapped) rows, preventing scroll drift and skipped rows
 
 ## [0.6.0] - 2026-08-10
 
