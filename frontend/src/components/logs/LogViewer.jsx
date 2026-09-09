@@ -79,7 +79,6 @@ export function LogViewer({
   };
 
   // Compute the visible slice from the current scroll position.
-  const totalHeight = logs.length * ROW_HEIGHT;
   const firstVisible = Math.floor(viewport.scrollTop / ROW_HEIGHT);
   const visibleCount = Math.ceil(viewport.height / ROW_HEIGHT) + OVERSCAN * 2;
   const start = Math.max(0, firstVisible - OVERSCAN);
@@ -111,7 +110,7 @@ export function LogViewer({
       {/* Log Content */}
     <div
       ref={containerRef}
-      className="flex-1 overflow-y-auto font-mono p-4 text-sm"
+      className="flex-1 overflow-y-auto overflow-x-hidden font-mono p-4 text-sm"
     >
         {logs.length === 0 ? (
           <div className="text-gray-500 text-center py-8">
@@ -120,43 +119,33 @@ export function LogViewer({
           </div>
         ) : (
           <>
-            <div style={{ height: totalHeight, position: 'relative' }}>
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  transform: `translateY(${start * ROW_HEIGHT}px)`
-                }}
-              >
-                {visibleLogs.map((log, idx) => {
-                  const absoluteIdx = start + idx;
-                  return (
-                    <div
-                      key={log.id ?? `${log.pod}-${absoluteIdx}-${log.message || log.text}`}
-                      className="flex gap-2 hover:bg-gray-900/50 whitespace-nowrap"
-                      style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
-                    >
-                      <span
-                        className="font-semibold shrink-0"
-                        style={{ color: podColorMap[log.pod] || '#888' }}
-                      >
-                        [{log.pod}]
-                      </span>
-                      {log.level && (
-                        <span className={`font-semibold shrink-0 ${getLevelColor(log.level)}`}>
-                          {log.level.toUpperCase()}
-                        </span>
-                      )}
-                      <span className="flex-1 text-gray-300">
-                        {log.message || log.text || ''}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <div style={{ height: start * ROW_HEIGHT }} aria-hidden="true" />
+            {visibleLogs.map((log, idx) => {
+              const absoluteIdx = start + idx;
+              return (
+                <div
+                  key={log.id ?? `${log.pod}-${absoluteIdx}-${log.message || log.text}`}
+                  className="flex gap-2 hover:bg-gray-900/50 whitespace-pre-wrap break-words"
+                  style={{ minHeight: ROW_HEIGHT, lineHeight: '20px' }}
+                >
+                  <span
+                    className="font-semibold shrink-0"
+                    style={{ color: podColorMap[log.pod] || '#888' }}
+                  >
+                    [{log.pod}]
+                  </span>
+                  {log.level && (
+                    <span className={`font-semibold shrink-0 ${getLevelColor(log.level)}`}>
+                      {log.level.toUpperCase()}
+                    </span>
+                  )}
+                  <span className="flex-1 text-gray-300">
+                    {log.message || log.text || ''}
+                  </span>
+                </div>
+              );
+            })}
+            <div style={{ height: (logs.length - end) * ROW_HEIGHT }} aria-hidden="true" />
           </>
         )}
     </div>
