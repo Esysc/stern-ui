@@ -1,10 +1,12 @@
 /**
- * Pod/container selector. Single-select:
- * click a pod to expand its containers, click a container to select it.
+ * Pod/container selector. Multi-select:
+ * click a pod to expand its containers, toggle a pod checkbox to select
+ * ALL containers in that pod, or toggle individual container checkboxes.
+ * Multiple containers across different pods can be selected at once.
  *
  * Props:
  *   options   - [{ pod, containers: ['c1', ...] }]
- *   selected  - ['pod/container'] (or [] / ['pod'])
+ *   selected  - ['pod', 'pod/container', ...]
  *   onChange  - (nextSelected: string[]) => void
  */
 import PropTypes from 'prop-types';
@@ -13,34 +15,48 @@ import { memo, useState, useMemo, useRef } from 'react';
 function PodContainerSelectComponent({ options = [], selected = [], onChange, idPrefix }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
-  const [expandedPod, setExpandedPod] = useState(null);
+  const [expandedPods, setExpandedPods] = useState(() => new Set());
   const containerRef = useRef(null);
-
-  const selectedValue = selected[0] || '';
-  const [selectedPod, selectedContainer] = selectedValue.split('/');
-  const selectedPodFull = selectedPod && !selectedContainer ? selectedPod : selectedValue;
 
   const filteredPods = useMemo(() => {
     const term = filter.toLowerCase();
     return options.filter((o) => o.pod.toLowerCase().includes(term));
   }, [options, filter]);
 
-  const togglePod = (pod) => {
-    setExpandedPod(expandedPod === pod ? null : pod);
-    setFilter('');
+  const togglePodExpand = (pod) => {
+    setExpandedPods((prev) => {
+      const next = new Set(prev);
+      if (next.has(pod)) next.delete(pod);
+      else next.add(pod);
+      return next;
+    });
   };
 
-  const selectContainer = (pod, container) => {
-    onChange([`${pod}/${container}`]);
-    setOpen(false);
-    setExpandedPod(null);
+  const toggleValue = (value) => {
+    if (selected.includes(value)) {
+      onChange(selected.filter((v) => v !== value));
+    } else {
+      onChange([...selected, value]);
+    }
   };
 
-  const clear = (e) => {
+  // Toggle all containers of a pod on/off
+  const togglePod = (pod, containers) => {
+    const allValues = containers.map((c) => `${pod}/${c}`);
+    const allSelected = allValues.every((v) => selected.includes(v));
+    if (allSelected) {
+      onChange(selected.filter((v) => !allValues.includes(v)));
+    } else {
+      const missing = allValues.filter((v) => !selected.includes(v));
+      onChange([...selected, ...missing]);
+    }
+  };
+
+  const clearAll = (e) => {
     e.stopPropagation();
     onChange([]);
     setOpen(false);
-    setExpandedPod(null);
+    setExpandedPods(new Set());
   };
 
   const id = idPrefix ? `${idPrefix}-pod-container` : 'pod-container';
@@ -53,30 +69,35 @@ function PodContainerSelectComponent({ options = [], selected = [], onChange, id
       <div
         id={id}
         ref={containerRef}
-        className="flex items-center gap-2 bg-gray-700 border border-gray-600 rounded px-3 py-2 cursor-pointer hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+        className="flex items-center gap-2 flex-wrap bg-gray-700 border border-gray-600 rounded px-3 py-2 cursor-pointer hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 min-h-[2.5rem]"
         onClick={() => { setOpen(!open); setFilter(''); }}
         role="combobox"
         aria-expanded={open}
         aria-haspopup="listbox"
         tabIndex={0}
       >
-        {selectedValue ? (
-          <span className="inline-flex items-center gap-1 bg-gray-600 rounded px-2 py-0.5 text-xs text-white">
-            <span className="font-semibold">{selectedPod}</span>
-            {selectedContainer && <><span className="text-gray-400">/</span><span>{selectedContainer}</span></>}
-            <button
-              type="button"
-              className="text-gray-400 hover:text-white"
-              onClick={clear}
-              aria-label={`Remove ${selectedValue}`}
-            >
-              ×
-            </button>
-          </span>
+        {selected.length > 0 ? (
+          selected.map((value) => {
+            const [pod, container] = value.split('/');
+            return (
+              <span key={value} className="inline-flex items-center gap-1 bg-gray-600 rounded px-2 py-0.5 text-xs text-white">
+                <span className="font-semibold">{pod}</span>
+                {container && <><span className="text-gray-400">/</span><span>{container}</span></>}
+                <button
+                  type="button"
+                  className="text-gray-400 hover:text-white"
+                  onClick={(e) => { e.stopPropagation(); toggleValue(value); }}
+                  aria-label={`Remove ${value}`}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })
         ) : (
-          <span className="text-gray-500 text-sm">Select a pod</span>
+          <span className="text-gray-500 text-sm">Select pods/containers</span>
         )}
-        <svg className="w-4 h-4 ml-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-4 h-4 ml-auto text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={open ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
         </svg>
       </div>
@@ -92,11 +113,11 @@ function PodContainerSelectComponent({ options = [], selected = [], onChange, id
               placeholder="Filter pods..."
               autoFocus
             />
-            {selectedValue && (
+            {selected.length > 0 && (
               <button
                 type="button"
                 className="text-xs text-gray-400 hover:text-white"
-                onClick={clear}
+                onClick={clearAll}
               >
                 Clear
               </button>
@@ -106,24 +127,32 @@ function PodContainerSelectComponent({ options = [], selected = [], onChange, id
             <div className="px-3 py-2 text-sm text-gray-400">No pods</div>
           )}
           {filteredPods.map(({ pod, containers }) => {
-            const isExpanded = expandedPod === pod;
-            const isSelected = selectedPodFull === pod;
+            const isExpanded = expandedPods.has(pod);
+            const podContainerValues = containers.map((c) => `${pod}/${c}`);
+            const selectedCount = podContainerValues.filter((v) => selected.includes(v)).length;
+            const allPodSelected = containers.length > 0 && selectedCount === containers.length;
+            const somePodSelected = selectedCount > 0 && !allPodSelected;
             return (
               <div key={pod} className="border-b border-gray-600/50">
                 <div
-                  className={`flex items-center justify-between px-3 py-1.5 cursor-pointer hover:bg-gray-600 ${isSelected ? 'bg-green-900/30' : ''}`}
-                  onClick={() => togglePod(pod)}
+                  className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-gray-600 ${selectedCount > 0 ? 'bg-green-900/30' : ''}`}
+                  onClick={() => togglePodExpand(pod)}
                   role="option"
-                  aria-selected={isSelected}
+                  aria-selected={selectedCount > 0}
                 >
-                  <span className="text-sm font-semibold text-white truncate">{pod}</span>
-                  {isSelected ? (
-                    <svg className="w-3 h-3 text-green-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                  ) : (
-                    <span className="text-xs text-gray-500 shrink-0">{containers.length} ctr</span>
-                  )}
+                  <input
+                    type="checkbox"
+                    checked={allPodSelected}
+                    ref={(el) => { if (el) el.indeterminate = somePodSelected; }}
+                    onChange={() => {}}
+                    onClick={(e) => { e.stopPropagation(); togglePod(pod, containers); }}
+                    className="shrink-0"
+                    aria-label={`Select all containers of ${pod}`}
+                  />
+                  <span className="text-sm font-semibold text-white truncate flex-1">{pod}</span>
+                  <span className="text-xs text-gray-500 shrink-0">
+                    {allPodSelected ? 'all' : somePodSelected ? `${selectedCount}/${containers.length}` : `${containers.length} ctr`}
+                  </span>
                 </div>
                 {isExpanded && (
                   <div className="bg-gray-800/50">
@@ -132,19 +161,21 @@ function PodContainerSelectComponent({ options = [], selected = [], onChange, id
                     )}
                     {containers.map((c) => {
                       const value = `${pod}/${c}`;
-                      const isContainerSelected = selectedValue === value;
+                      const isContainerSelected = selected.includes(value);
                       return (
                         <div
                           key={c}
-                          className={`flex items-center justify-between px-6 py-1 cursor-pointer hover:bg-gray-600 ${isContainerSelected ? 'bg-green-900/30' : ''}`}
-                          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); selectContainer(pod, c); }}
+                          className={`flex items-center gap-2 px-6 py-1 cursor-pointer hover:bg-gray-600 ${isContainerSelected ? 'bg-green-900/30' : ''}`}
+                          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); toggleValue(value); }}
                         >
+                          <input
+                            type="checkbox"
+                            checked={isContainerSelected}
+                            onChange={() => {}}
+                            className="shrink-0"
+                            aria-label={`Select ${value}`}
+                          />
                           <span className="text-sm text-gray-300">{c}</span>
-                          {isContainerSelected && (
-                            <svg className="w-3 h-3 text-green-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                          )}
                         </div>
                       );
                     })}

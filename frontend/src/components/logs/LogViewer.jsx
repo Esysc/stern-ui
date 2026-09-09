@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import PropTypes from 'prop-types';
 
 const ROW_HEIGHT = 20;
@@ -18,6 +18,10 @@ export function LogViewer({
   const containerRef = useRef(null);
   const followedRef = useRef(true);
   const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
+  // Measured row heights keyed by log id, so wrapped rows contribute their
+  // real height to the virtualized geometry. Stored in state so render-phase
+  // computations (prefix sums) can read them without touching a ref.
+  const [rowHeights, setRowHeights] = useState(() => new Map());
 
   // Track scroll position and viewport size. Mark whether user is pinned to
   // the bottom so incoming logs only scroll if they're still at the tail.
@@ -45,6 +49,17 @@ export function LogViewer({
     };
   }, [autoScroll]);
 
+  // Reset measurements when the underlying log set changes (e.g. filter
+  // changes or a fresh stream) so stale heights never apply to new content.
+  // Adjusting state during render is the React-sanctioned pattern for
+  // deriving state from a prop change.
+  const [prevFirstId, setPrevFirstId] = useState(null);
+  const firstId = logs[0]?.id;
+  if (firstId !== prevFirstId) {
+    setPrevFirstId(firstId);
+    setRowHeights(new Map());
+  }
+
   // Jump to the tail whenever new logs arrive while pinned to the bottom.
   const prevLengthRef = useRef(0);
   useEffect(() => {
@@ -56,6 +71,14 @@ export function LogViewer({
     el.scrollTop = el.scrollHeight;
     followedRef.current = true;
   }, [logs]);
+
+  // Re-pin to the tail after measurements change the total height while the
+  // user is still following the stream.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !followedRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [rowHeights]);
 
   const scrollToTop = () => {
     containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -78,13 +101,57 @@ export function LogViewer({
     return colors[level?.toLowerCase()] || 'text-gray-300';
   };
 
-  // Compute the visible slice from the current scroll position.
-  const totalHeight = logs.length * ROW_HEIGHT;
-  const firstVisible = Math.floor(viewport.scrollTop / ROW_HEIGHT);
-  const visibleCount = Math.ceil(viewport.height / ROW_HEIGHT) + OVERSCAN * 2;
-  const start = Math.max(0, firstVisible - OVERSCAN);
-  const end = Math.min(logs.length, start + visibleCount);
-  const visibleLogs = logs.slice(start, end);
+  // Record a rendered row's real height so wrapped lines contribute their
+  // actual size to the virtualized geometry.
+  const measureRow = (el, id) => {
+    if (!el) return;
+    const h = el.offsetHeight;
+    setRowHeights((prev) => {
+      if (prev.get(id) === h) return prev;
+      const next = new Map(prev);
+      next.set(id, h);
+      return next;
+    });
+  };
+
+  // Prefix sums over measured heights (fallback to ROW_HEIGHT for rows not
+  // yet rendered/measured) so wrapped rows contribute their real height.
+  const prefix = useMemo(() => {
+    const arr = new Float64Array(logs.length + 1);
+    for (let i = 0; i < logs.length; i++) {
+      arr[i + 1] = arr[i] + (rowHeights.get(logs[i].id) ?? ROW_HEIGHT);
+    }
+    return arr;
+  }, [logs, rowHeights]);
+
+  const totalHeight = prefix[logs.length];
+
+  // Locate the visible slice: binary search for the first row at/after the
+  // scroll offset, then walk forward until the viewport + overscan budget.
+  const visSlice = useMemo(() => {
+    if (logs.length === 0) {
+      return { start: 0, end: 0, padTop: 0, padBottom: 0 };
+    }
+    let lo = 0;
+    let hi = logs.length;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (prefix[mid] <= viewport.scrollTop) lo = mid;
+      else hi = mid - 1;
+    }
+    const start = Math.max(0, lo - OVERSCAN);
+    const budget = viewport.height + OVERSCAN * ROW_HEIGHT;
+    let end = start;
+    while (end < logs.length && prefix[end + 1] - prefix[start] <= budget) end++;
+    return {
+      start,
+      end,
+      padTop: prefix[start],
+      padBottom: totalHeight - prefix[end]
+    };
+  }, [prefix, totalHeight, viewport.scrollTop, viewport.height, logs.length]);
+
+  const visibleLogs = logs.slice(visSlice.start, visSlice.end);
 
   return (
     <div className="relative flex-1 flex flex-col min-h-0">
@@ -111,7 +178,7 @@ export function LogViewer({
       {/* Log Content */}
     <div
       ref={containerRef}
-      className="flex-1 overflow-y-auto font-mono p-4 text-sm"
+      className="flex-1 overflow-y-auto overflow-x-hidden font-mono p-4 text-sm"
     >
         {logs.length === 0 ? (
           <div className="text-gray-500 text-center py-8">
@@ -120,43 +187,34 @@ export function LogViewer({
           </div>
         ) : (
           <>
-            <div style={{ height: totalHeight, position: 'relative' }}>
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  transform: `translateY(${start * ROW_HEIGHT}px)`
-                }}
-              >
-                {visibleLogs.map((log, idx) => {
-                  const absoluteIdx = start + idx;
-                  return (
-                    <div
-                      key={log.id ?? `${log.pod}-${absoluteIdx}-${log.message || log.text}`}
-                      className="flex gap-2 hover:bg-gray-900/50 whitespace-nowrap"
-                      style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
-                    >
-                      <span
-                        className="font-semibold shrink-0"
-                        style={{ color: podColorMap[log.pod] || '#888' }}
-                      >
-                        [{log.pod}]
-                      </span>
-                      {log.level && (
-                        <span className={`font-semibold shrink-0 ${getLevelColor(log.level)}`}>
-                          {log.level.toUpperCase()}
-                        </span>
-                      )}
-                      <span className="flex-1 text-gray-300">
-                        {log.message || log.text || ''}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <div style={{ height: visSlice.padTop }} aria-hidden="true" />
+            {visibleLogs.map((log, idx) => {
+              const absoluteIdx = visSlice.start + idx;
+              return (
+                <div
+                  key={log.id ?? `${log.pod}-${absoluteIdx}-${log.message || log.text}`}
+                  ref={(el) => measureRow(el, log.id ?? absoluteIdx)}
+                  className="flex gap-2 hover:bg-gray-900/50 whitespace-pre-wrap break-words"
+                  style={{ minHeight: ROW_HEIGHT, lineHeight: '20px' }}
+                >
+                  <span
+                    className="font-semibold shrink-0"
+                    style={{ color: podColorMap[log.pod] || '#888' }}
+                  >
+                    [{log.pod}]
+                  </span>
+                  {log.level && (
+                    <span className={`font-semibold shrink-0 ${getLevelColor(log.level)}`}>
+                      {log.level.toUpperCase()}
+                    </span>
+                  )}
+                  <span className="flex-1 text-gray-300">
+                    {log.message || log.text || ''}
+                  </span>
+                </div>
+              );
+            })}
+            <div style={{ height: visSlice.padBottom }} aria-hidden="true" />
           </>
         )}
     </div>

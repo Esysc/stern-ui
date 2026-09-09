@@ -95,6 +95,30 @@ describe('compileLogFilters', () => {
     const filters = compileLogFilters({ query: '.', container: 'api-pod/api' });
     expect(filterLogs(sampleLogs, filters)).toHaveLength(2);
   });
+
+  it('matches any of multiple comma-separated pod/container tokens', () => {
+    const logs = [
+      { message: 'a', pod: 'api-pod', container: 'api' },
+      { message: 'b', pod: 'web-pod', container: 'nginx' },
+      { message: 'c', pod: 'db-pod', container: 'postgres' },
+    ];
+    const filters = compileLogFilters({ query: '.', container: 'api-pod/api,web-pod/nginx' });
+    const result = filterLogs(logs, filters);
+    expect(result).toHaveLength(2);
+    expect(result.map(log => log.container).sort()).toEqual(['api', 'nginx']);
+  });
+
+  it('handles mixed pod/container and plain container tokens', () => {
+    const logs = [
+      { message: 'a', pod: 'api-pod', container: 'api' },
+      { message: 'b', pod: 'web-pod', container: 'nginx' },
+      { message: 'c', pod: 'db-pod', container: 'postgres' },
+    ];
+    const filters = compileLogFilters({ query: '.', container: 'api-pod/api,postgres' });
+    const result = filterLogs(logs, filters);
+    expect(result).toHaveLength(2);
+    expect(result.map(log => log.container).sort()).toEqual(['api', 'postgres']);
+  });
 });
 
 describe('buildPodColorMap', () => {
