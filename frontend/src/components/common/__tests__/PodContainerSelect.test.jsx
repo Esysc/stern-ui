@@ -48,4 +48,24 @@ describe('PodContainerSelect', () => {
     fireEvent.click(screen.getByLabelText('Remove api-1/api'));
     expect(onChange).toHaveBeenCalledWith([]);
   });
+
+  it('lets the user select all containers of a pod via the pod checkbox', () => {
+    const onChange = vi.fn();
+    render(<PodContainerSelect options={options} selected={[]} onChange={onChange} idPrefix="t" />);
+
+    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByLabelText('Select all containers of web-1'));
+
+    expect(onChange).toHaveBeenCalledWith(['web-1/main', 'web-1/sidecar']);
+  });
+
+  it('clears all containers of a pod when deselecting the pod checkbox', () => {
+    const onChange = vi.fn();
+    render(<PodContainerSelect options={options} selected={['web-1/main', 'web-1/sidecar']} onChange={onChange} idPrefix="t" />);
+
+    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByLabelText('Select all containers of web-1'));
+
+    expect(onChange).toHaveBeenCalledWith([]);
+  });
 });

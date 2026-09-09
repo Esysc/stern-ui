@@ -1,12 +1,12 @@
 /**
  * Pod/container selector. Multi-select:
- * click a pod to expand its containers, toggle a container's checkbox to
- * include/exclude it. Multiple containers, across the same or different
- * pods, can be selected at once.
+ * click a pod to expand its containers, toggle a pod checkbox to select
+ * ALL containers in that pod, or toggle individual container checkboxes.
+ * Multiple containers across different pods can be selected at once.
  *
  * Props:
  *   options   - [{ pod, containers: ['c1', ...] }]
- *   selected  - ['pod/container', ...] (or ['pod'] for a legacy whole-pod value)
+ *   selected  - ['pod', 'pod/container', ...]
  *   onChange  - (nextSelected: string[]) => void
  */
 import PropTypes from 'prop-types';
@@ -37,6 +37,18 @@ function PodContainerSelectComponent({ options = [], selected = [], onChange, id
       onChange(selected.filter((v) => v !== value));
     } else {
       onChange([...selected, value]);
+    }
+  };
+
+  // Toggle all containers of a pod on/off
+  const togglePod = (pod, containers) => {
+    const allValues = containers.map((c) => `${pod}/${c}`);
+    const allSelected = allValues.every((v) => selected.includes(v));
+    if (allSelected) {
+      onChange(selected.filter((v) => !allValues.includes(v)));
+    } else {
+      const missing = allValues.filter((v) => !selected.includes(v));
+      onChange([...selected, ...missing]);
     }
   };
 
@@ -118,6 +130,8 @@ function PodContainerSelectComponent({ options = [], selected = [], onChange, id
             const isExpanded = expandedPods.has(pod);
             const podContainerValues = containers.map((c) => `${pod}/${c}`);
             const selectedCount = podContainerValues.filter((v) => selected.includes(v)).length;
+            const allPodSelected = containers.length > 0 && selectedCount === containers.length;
+            const somePodSelected = selectedCount > 0 && !allPodSelected;
             return (
               <div key={pod} className="border-b border-gray-600/50">
                 <div
@@ -126,9 +140,18 @@ function PodContainerSelectComponent({ options = [], selected = [], onChange, id
                   role="option"
                   aria-selected={selectedCount > 0}
                 >
+                  <input
+                    type="checkbox"
+                    checked={allPodSelected}
+                    ref={(el) => { if (el) el.indeterminate = somePodSelected; }}
+                    onChange={() => {}}
+                    onClick={(e) => { e.stopPropagation(); togglePod(pod, containers); }}
+                    className="shrink-0"
+                    aria-label={`Select all containers of ${pod}`}
+                  />
                   <span className="text-sm font-semibold text-white truncate flex-1">{pod}</span>
                   <span className="text-xs text-gray-500 shrink-0">
-                    {selectedCount > 0 ? `${selectedCount}/${containers.length} selected` : `${containers.length} ctr`}
+                    {allPodSelected ? 'all' : somePodSelected ? `${selectedCount}/${containers.length}` : `${containers.length} ctr`}
                   </span>
                 </div>
                 {isExpanded && (
