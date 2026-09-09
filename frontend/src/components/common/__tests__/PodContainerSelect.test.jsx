@@ -10,7 +10,7 @@ const options = [
 describe('PodContainerSelect', () => {
   it('shows placeholder when nothing selected', () => {
     render(<PodContainerSelect options={options} selected={[]} onChange={() => {}} idPrefix="t" />);
-    expect(screen.getByText(/Select a pod/i)).toBeInTheDocument();
+    expect(screen.getByText(/Select pods\/containers/i)).toBeInTheDocument();
   });
 
   it('shows selected pod/container as a chip', () => {
@@ -28,6 +28,17 @@ describe('PodContainerSelect', () => {
 
     fireEvent.mouseDown(screen.getByText('sidecar'));
     expect(onChange).toHaveBeenCalledWith(['web-1/sidecar']);
+  });
+
+  it('adds to the selection instead of replacing it when picking another container', () => {
+    const onChange = vi.fn();
+    render(<PodContainerSelect options={options} selected={['web-1/main']} onChange={onChange} idPrefix="t" />);
+
+    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByText('api-1'));
+    fireEvent.mouseDown(screen.getByText('api'));
+
+    expect(onChange).toHaveBeenCalledWith(['web-1/main', 'api-1/api']);
   });
 
   it('removes selection when the x is clicked', () => {

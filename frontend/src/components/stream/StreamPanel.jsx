@@ -138,6 +138,7 @@ export function StreamPanel({ streamId, initialConfig, onStreamStateChange, isAc
       prev.node !== curr.node ||
       prev.context !== curr.context ||
       prev.query !== curr.query ||
+      prev.container !== curr.container ||
       prev.selector !== curr.selector ||
       prev.tail !== curr.tail ||
       prev.initContainers !== curr.initContainers ||
@@ -183,12 +184,25 @@ export function StreamPanel({ streamId, initialConfig, onStreamStateChange, isAc
       chips.push({ key: 'namespace', label: `Namespace: ${config.namespace}`, onRemove: () => setConfig(prev => ({ ...prev, namespace: '' })) });
     }
 
-    if (config.query && config.query !== '.') {
-      chips.push({ key: 'query', label: `Pod: ${config.query}`, onRemove: () => setConfig(prev => ({ ...prev, query: '.' })) });
-    }
+    const containerTokens = config.container
+      ? config.container.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
 
-    if (config.container) {
-      chips.push({ key: 'container', label: `Container: ${config.container}`, onRemove: () => setConfig(prev => ({ ...prev, container: '' })) });
+    if (containerTokens.length > 0) {
+      containerTokens.forEach((token) => {
+        chips.push({
+          key: `container-${token}`,
+          label: token.includes('/') ? `Container: ${token}` : `Pod: ${token}`,
+          onRemove: () => setConfig(prev => {
+            const remaining = containerTokens.filter((t) => t !== token);
+            return remaining.length > 0
+              ? { ...prev, container: remaining.join(',') }
+              : { ...prev, container: '', query: '.' };
+          })
+        });
+      });
+    } else if (config.query && config.query !== '.') {
+      chips.push({ key: 'query', label: `Pod: ${config.query}`, onRemove: () => setConfig(prev => ({ ...prev, query: '.' })) });
     }
 
     return chips;

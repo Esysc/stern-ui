@@ -61,15 +61,27 @@ function compilePattern(pattern) {
 
 /**
  * Precompile log filters so they aren't rebuilt for every log line.
+ * `container` may be a single token or a comma-separated list of
+ * "container" / "pod/container" tokens (matches any of them).
  */
 export function compileLogFilters({ query, container } = {}) {
+  let containerPattern = null;
+  if (container instanceof RegExp) {
+    containerPattern = container;
+  } else if (typeof container === 'string' && container) {
+    const containerNames = container
+      .split(',')
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .map((token) => (token.includes('/') ? token.split('/').pop() : token));
+    if (containerNames.length > 0) {
+      containerPattern = containerNames.map((name) => `^${name}$`).join('|');
+    }
+  }
+
   return {
     query: compilePattern(query && query !== '.' ? query : null),
-    container: compilePattern(container
-      ? (typeof container === 'string' && container.includes('/')
-        ? container.split('/').pop()
-        : container)
-      : null)
+    container: compilePattern(containerPattern)
   };
 }
 

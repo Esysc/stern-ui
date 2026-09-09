@@ -17,10 +17,16 @@ const StreamConfigComponent = ({
 
   const idPrefix = `stream-${streamId}`;
 
+  // config.container holds a comma-separated list of "pod/container" tokens,
+  // allowing multiple containers (across the same or different pods) to be
+  // tailed at once without reconnecting per selection. A single legacy
+  // whole-pod value (no "/") is read from config.query for older saved configs.
   const selected = useMemo(() => {
-    if (!config.query) return [];
-    if (!config.container) return [config.query];
-    return [`${config.query}/${config.container}`];
+    if (config.container) {
+      return config.container.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    if (config.query && config.query !== '.') return [config.query];
+    return [];
   }, [config.query, config.container]);
 
   return (
@@ -37,10 +43,19 @@ const StreamConfigComponent = ({
         options={autocomplete.options}
         selected={selected}
         onChange={(newSelected) => {
-          const pc = newSelected[0] || '';
-          const [pod, container] = pc.split('/');
-          updateConfig('query', pod || '');
-          updateConfig('container', container || '');
+          if (newSelected.length === 0) {
+            updateConfig('container', '');
+            updateConfig('query', '.');
+            return;
+          }
+          // A single whole-pod selection keeps using the plain "query" field
+          // for backward compatibility with saved configs and manual regex entry.
+          if (newSelected.length === 1 && !newSelected[0].includes('/')) {
+            updateConfig('container', '');
+            updateConfig('query', newSelected[0]);
+            return;
+          }
+          onChange({ ...config, container: newSelected.join(','), query: '.' });
         }}
         idPrefix={idPrefix}
       />

@@ -431,6 +431,37 @@ func extractContainerName(input string) string {
 	return input
 }
 
+// splitContainerTokens splits a comma-separated container filter into trimmed,
+// non-empty tokens. Each token is either "container" or "pod/container".
+func splitContainerTokens(containerStr string) []string {
+	var tokens []string
+	for _, t := range strings.Split(containerStr, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tokens = append(tokens, t)
+		}
+	}
+	return tokens
+}
+
+// extractUniquePodNames returns the escaped, de-duplicated pod names found in
+// "pod/container" tokens, preserving first-seen order.
+func extractUniquePodNames(tokens []string) []string {
+	var podNames []string
+	seen := make(map[string]bool)
+	for _, t := range tokens {
+		if !strings.Contains(t, "/") {
+			continue
+		}
+		pod := strings.SplitN(t, "/", 2)[0]
+		if pod == "" || seen[pod] {
+			continue
+		}
+		seen[pod] = true
+		podNames = append(podNames, regexp.QuoteMeta(pod))
+	}
+	return podNames
+}
+
 func compileContainerRegexList(filterStr string) ([]*regexp.Regexp, error) {
 	// Like compileRegexList but extracts container names from "pod/container" format
 	var regexes []*regexp.Regexp
@@ -476,18 +507,19 @@ func parseRegexFilters(params streamParams) (*regexp.Regexp, *regexp.Regexp, []*
 	debugLog("  allNamespaces: %q", params.allNamespaces)
 	debugLog("========================")
 
-	// Handle query regex - if container has pod/container format, extract pod name for query
+	// container is a comma-separated list of tokens, each "container" or "pod/container",
+	// allowing multiple containers (optionally across multiple pods) to be tailed at once.
+	containerTokens := splitContainerTokens(params.container)
+
+	// Handle query regex - if any token has pod/container format, restrict query to those pod(s)
 	queryPattern := params.query
-	if params.container != "" && strings.Contains(params.container, "/") {
-		// Extract pod name from "pod/container" format
-		parts := strings.Split(params.container, "/")
-		if len(parts) >= 2 {
-			podName := parts[0]
-			debugLog("Container field contains pod/container format. Extracted pod name: %q", podName)
-			// Override query to match only this specific pod
-			queryPattern = "^" + regexp.QuoteMeta(podName) + "$"
-			debugLog("Overriding query pattern to match specific pod: %q", queryPattern)
+	if podNames := extractUniquePodNames(containerTokens); len(podNames) > 0 {
+		if len(podNames) == 1 {
+			queryPattern = "^" + podNames[0] + "$"
+		} else {
+			queryPattern = "^(" + strings.Join(podNames, "|") + ")$"
 		}
+		debugLog("Container tokens specify pod(s). Overriding query pattern to match: %q", queryPattern)
 	}
 
 	queryRegex, err := regexp.Compile(queryPattern)
@@ -497,20 +529,20 @@ func parseRegexFilters(params streamParams) (*regexp.Regexp, *regexp.Regexp, []*
 	debugLog("Query regex compiled: %s", queryRegex.String())
 
 	containerRegex := regexp.MustCompile(".*")
-	if params.container != "" {
-		// Extract container name from "pod/container" format if needed
-		containerName := extractContainerName(params.container)
-		debugLog("Extracted container name: %q from input: %q", containerName, params.container)
-
-		// Check if it's already a regex pattern (contains regex special chars)
-		// If not, make it an exact match by escaping and anchoring
-		pattern := containerName
-		if !strings.ContainsAny(pattern, ".*+?[]{}()^$|\\") {
-			pattern = "^" + regexp.QuoteMeta(pattern) + "$"
+	if len(containerTokens) > 0 {
+		var patterns []string
+		for _, t := range containerTokens {
+			containerName := extractContainerName(t)
+			pattern := containerName
+			if !strings.ContainsAny(pattern, ".*+?[]{}()^$|\\") {
+				pattern = "^" + regexp.QuoteMeta(pattern) + "$"
+			}
+			patterns = append(patterns, pattern)
 		}
-		debugLog("Container regex pattern: %q -> compiled regex: %s", pattern, pattern)
+		combined := strings.Join(patterns, "|")
+		debugLog("Container regex pattern: %q -> compiled regex: %s", params.container, combined)
 
-		containerRegex, err = regexp.Compile(pattern)
+		containerRegex, err = regexp.Compile(combined)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("invalid container regex: %w", err)
 		}
