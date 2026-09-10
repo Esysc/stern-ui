@@ -116,4 +116,48 @@ describe('LogViewer', () => {
       else delete proto.offsetHeight;
     }
   });
+
+  it('renders rows taller than the viewport budget instead of blanking the window', () => {
+    const logs = Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      pod: 'web-1',
+      message: `line ${i}`
+    }));
+
+    // jsdom reports no layout, so give rows a default height and simulate one
+    // hugely wrapped row (taller than viewport + overscan budget, which is
+    // 240px in jsdom where clientHeight is 0).
+    const proto = HTMLElement.prototype;
+    const original = Object.getOwnPropertyDescriptor(proto, 'offsetHeight');
+    Object.defineProperty(proto, 'offsetHeight', {
+      configurable: true,
+      get() { return 20; }
+    });
+
+    try {
+      const { container, rerender } = render(<LogViewer logs={logs} />);
+      const rows = container.querySelectorAll('.whitespace-pre-wrap');
+      Object.defineProperty(rows[5], 'offsetHeight', { value: 2000, configurable: true });
+
+      rerender(<LogViewer logs={logs} />);
+
+      // The tall row must still be rendered once its top edge scrolls into
+      // the budget — the window must never end up with zero rows.
+      const rendered = container.querySelectorAll('.whitespace-pre-wrap');
+      expect(rendered.length).toBeGreaterThan(0);
+      expect(Array.from(rendered).some((r) => r.textContent.includes('line 5'))).toBe(true);
+
+      // Simulate scrolling to the tall row and verify it stays rendered.
+      const scrollContainer = container.querySelector('.overflow-y-auto');
+      Object.defineProperty(scrollContainer, 'scrollTop', { value: 110, configurable: true });
+      fireEvent.scroll(scrollContainer);
+
+      const afterScroll = container.querySelectorAll('.whitespace-pre-wrap');
+      expect(afterScroll.length).toBeGreaterThan(0);
+      expect(Array.from(afterScroll).some((r) => r.textContent.includes('line 5'))).toBe(true);
+    } finally {
+      if (original) Object.defineProperty(proto, 'offsetHeight', original);
+      else delete proto.offsetHeight;
+    }
+  });
 });

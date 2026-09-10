@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Resource-kind discovery parsed `kubectl api-resources -o json` with the wrong top-level key (`items` instead of `resources`), which made every kind lookup return 400 with a real cluster; malformed or empty discovery output is now an error instead of being cached
+- Log window could go blank when a single wrapped log line was taller than the viewport + overscan budget (e.g. one huge JSON line or stack trace): the virtualized slice walk now renders any row whose top edge is within the budget, so oversized rows are never dropped and the window can never end up with zero rows
 
 ## [0.7.0] - 2026-09-09
 

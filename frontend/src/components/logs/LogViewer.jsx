@@ -141,8 +141,12 @@ export function LogViewer({
     }
     const start = Math.max(0, lo - OVERSCAN);
     const budget = viewport.height + OVERSCAN * ROW_HEIGHT;
+    // Advance while the next row's top edge is within the budget. Requiring
+    // the whole row to fit (prefix[end + 1] - prefix[start]) would drop any
+    // row taller than the budget — e.g. one very long wrapped line — and
+    // render zero rows, blanking the log window.
     let end = start;
-    while (end < logs.length && prefix[end + 1] - prefix[start] <= budget) end++;
+    while (end < logs.length && prefix[end] - prefix[start] < budget) end++;
     return {
       start,
       end,
