@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -15,10 +16,12 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -29,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/yaml"
 )
 
 // Debug logging helper - checks DEBUG env var
@@ -816,11 +820,16 @@ func newRouter() *gin.Engine {
 	r.GET("/api/pod-metadata", getPodMetadata)
 
 	// API endpoints for cluster management
+	r.GET("/api/clusters/resource-kinds", getResourceKinds)
 	r.GET("/api/clusters/events", getClusterEvents)
 	r.GET("/api/clusters/health", getClusterHealth)
 	r.POST("/api/clusters/apply", applyManifest)
 	r.GET("/api/clusters/resources", getClusterResources)
 	r.GET("/api/clusters/resource-detail", getResourceDetail)
+	r.POST("/api/clusters/resource-patch", patchResource)
+	r.POST("/api/clusters/resource-delete", deleteResource)
+	r.GET("/api/clusters/scale-info", getScaleInfo)
+	r.POST("/api/clusters/node-drain", drainNode)
 
 	// Serve embedded static files from frontend/dist
 	distFS, err := fs.Sub(frontendFS, "frontend/dist")
@@ -1252,7 +1261,8 @@ func applyManifest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"output": string(output)})
 }
 
-// Resource kinds browsable in the UI (plural, may include API group suffix)
+// Resource kinds browsable in the UI (plural, may include API group suffix).
+// Used only as a fallback when API discovery is unavailable (e.g. no cluster access).
 var resourceWhitelist = map[string]string{
 	"configmaps":          "configmaps",
 	"secrets":             "secrets",
@@ -1277,20 +1287,184 @@ var clusterScopedResources = map[string]bool{
 	"nodes":               true,
 }
 
-// getClusterResources lists a whitelisted resource kind for a context
+// dynamicKindPattern restricts resource kind identifiers to safe characters.
+// Kinds are passed as a single kubectl argument, so anything outside
+// lowercase letters, digits, dots and dashes is rejected outright.
+var dynamicKindPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*$`)
+
+// apiResourceInfo describes one browsable API resource type
+type apiResourceInfo struct {
+	Name       string   `json:"name"`
+	Kind       string   `json:"kind"`
+	Group      string   `json:"group"`
+	Version    string   `json:"version"`
+	Namespaced bool     `json:"namespaced"`
+	Verbs      []string `json:"verbs"`
+}
+
+func resourceIdentifier(it apiResourceInfo) string {
+	if it.Group == "" {
+		return it.Name
+	}
+	return it.Name + "." + it.Group
+}
+
+func hasVerb(verbs []string, want string) bool {
+	for _, v := range verbs {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+const resourceKindsTTL = 5 * time.Minute
+
+type resourceKindsCacheEntry struct {
+	kinds     []apiResourceInfo
+	expiresAt time.Time
+}
+
+var resourceKindsCache = struct {
+	mu      sync.Mutex
+	entries map[string]resourceKindsCacheEntry
+}{entries: make(map[string]resourceKindsCacheEntry)}
+
+// listResourceKinds returns the resource types that support list+get for a
+// context, discovered via `kubectl api-resources`. Results are cached per
+// context for resourceKindsTTL so repeated panel loads stay cheap.
+func listResourceKinds(ctxName string) ([]apiResourceInfo, error) {
+	resourceKindsCache.mu.Lock()
+	defer resourceKindsCache.mu.Unlock()
+
+	if entry, ok := resourceKindsCache.entries[ctxName]; ok && time.Now().Before(entry.expiresAt) {
+		return entry.kinds, nil
+	}
+
+	cmd := exec.Command("kubectl", "--context", ctxName, "api-resources", "--verbs=list", "-o", "json")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("kubectl api-resources failed: %s: %s", err.Error(), strings.TrimSpace(string(output)))
+	}
+
+	kinds, err := parseResourceKinds(output)
+	if err != nil {
+		return nil, err
+	}
+
+	resourceKindsCache.entries[ctxName] = resourceKindsCacheEntry{kinds: kinds, expiresAt: time.Now().Add(resourceKindsTTL)}
+	return kinds, nil
+}
+
+// parseResourceKinds extracts browsable resource types from
+// `kubectl api-resources -o json` output, which is a single APIResourceList:
+// {"kind":"APIResourceList","resources":[{"name":"configmaps",...},...]}
+func parseResourceKinds(output []byte) ([]apiResourceInfo, error) {
+	var list struct {
+		Kind      string            `json:"kind"`
+		Resources []apiResourceInfo `json:"resources"`
+		Items     []apiResourceInfo `json:"items"` // legacy fallback
+	}
+	if err := json.Unmarshal(output, &list); err != nil {
+		return nil, fmt.Errorf("failed to parse kubectl api-resources output: %w", err)
+	}
+
+	resources := list.Resources
+	if len(resources) == 0 {
+		resources = list.Items
+	}
+	if len(resources) == 0 {
+		return nil, fmt.Errorf("kubectl api-resources output contained no resources")
+	}
+
+	kinds := make([]apiResourceInfo, 0, len(resources))
+	for _, it := range resources {
+		if !hasVerb(it.Verbs, "get") || !hasVerb(it.Verbs, "list") {
+			continue
+		}
+		kinds = append(kinds, it)
+	}
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i].Kind < kinds[j].Kind })
+	if len(kinds) == 0 {
+		return nil, fmt.Errorf("kubectl api-resources output contained no browsable resource types")
+	}
+	return kinds, nil
+}
+
+// lookupResource finds a discovered resource by identifier (name or name.group)
+func lookupResource(kinds []apiResourceInfo, kind string) (apiResourceInfo, bool) {
+	for _, it := range kinds {
+		if resourceIdentifier(it) == kind {
+			return it, true
+		}
+	}
+	// Prefer the core-group resource when the identifier is groupless
+	for _, it := range kinds {
+		if it.Group == "" && it.Name == kind {
+			return it, true
+		}
+	}
+	for _, it := range kinds {
+		if it.Name == kind {
+			return it, true
+		}
+	}
+	return apiResourceInfo{}, false
+}
+
+// resolveKind validates a kind identifier and determines whether it is
+// cluster-scoped. Kinds are resolved against the context's API discovery when
+// reachable; the static whitelist is used as a fallback when discovery fails
+// (e.g. offline test environments). The `known` flag reports whether the kind
+// was confirmed by live discovery.
+func resolveKind(ctxName, kind string) (clusterScoped bool, known bool, err error) {
+	if !dynamicKindPattern.MatchString(kind) {
+		return false, false, fmt.Errorf("unsupported resource kind %q", kind)
+	}
+
+	kinds, derr := listResourceKinds(ctxName)
+	if derr != nil {
+		// Discovery unavailable: fall back to the static whitelist (exact
+		// identifier match — legacy callers send groupless kinds)
+		if resourceWhitelist[kind] == "" {
+			return false, false, fmt.Errorf("unsupported resource kind %q", kind)
+		}
+		return clusterScopedResources[kind], false, nil
+	}
+
+	it, ok := lookupResource(kinds, kind)
+	if !ok {
+		return false, false, fmt.Errorf("unsupported resource kind %q", kind)
+	}
+	return !it.Namespaced, true, nil
+}
+
+// getResourceKinds returns the browsable resource types for a context,
+// including CRDs, so the UI can build its resource-kind selector dynamically.
+func getResourceKinds(c *gin.Context) {
+	ctxName := c.Query("context")
+	kinds, err := listResourceKinds(ctxName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, kinds)
+}
+
+// getClusterResources lists a resource kind for a context
 func getClusterResources(c *gin.Context) {
 	ctxName := c.Query("context")
 	kind := strings.ToLower(strings.TrimSpace(c.Query("kind")))
 	namespace := strings.TrimSpace(c.Query("namespace"))
 
-	resource, ok := resourceWhitelist[kind]
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported resource kind %q", kind)})
+	clusterScoped, _, err := resolveKind(ctxName, kind)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	args := []string{"--context", ctxName, "get", resource, "-o", "json"}
-	if namespace != "" && !clusterScopedResources[kind] {
+	args := []string{"--context", ctxName, "get", kind, "-o", "json"}
+	if namespace != "" && !clusterScoped {
 		args = append(args, "--namespace="+namespace)
 	}
 
@@ -1326,25 +1500,26 @@ func getClusterResources(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"kind": kind, "items": items})
 }
 
-// getResourceDetail returns the full YAML of a single whitelisted resource
+// getResourceDetail returns the full YAML plus the parsed object of a single
+// resource. The parsed object powers the dynamic edit form in the UI.
 func getResourceDetail(c *gin.Context) {
 	ctxName := c.Query("context")
 	kind := strings.ToLower(strings.TrimSpace(c.Query("kind")))
 	name := strings.TrimSpace(c.Query("name"))
 	namespace := strings.TrimSpace(c.Query("namespace"))
 
-	resource, ok := resourceWhitelist[kind]
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported resource kind %q", kind)})
+	clusterScoped, _, err := resolveKind(ctxName, kind)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if name == "" || strings.HasPrefix(name, "-") || strings.ContainsAny(name, " \t\n") {
+	if !validResourceName(name) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource name"})
 		return
 	}
 
-	args := []string{"--context", ctxName, "get", resource, name, "-o", "yaml"}
-	if namespace != "" && !clusterScopedResources[kind] {
+	args := []string{"--context", ctxName, "get", kind, name, "-o", "json"}
+	if namespace != "" && !clusterScoped {
 		args = append(args, "--namespace="+namespace)
 	}
 
@@ -1355,5 +1530,340 @@ func getResourceDetail(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"kind": kind, "name": name, "yaml": string(output)})
+	var obj map[string]interface{}
+	if err := json.Unmarshal(output, &obj); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse kubectl output: " + err.Error()})
+		return
+	}
+
+	yamlOut, err := yaml.Marshal(obj)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to render YAML: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"kind": kind, "name": name, "yaml": string(yamlOut), "object": obj})
+}
+
+// validResourceName applies the same name validation used by detail and patch
+func validResourceName(name string) bool {
+	return name != "" && !strings.HasPrefix(name, "-") && !strings.ContainsAny(name, " \t\n")
+}
+
+// maxPatchOps caps the number of JSON Patch operations per request
+const maxPatchOps = 200
+
+// jsonPatchOp is one RFC 6902 operation
+type jsonPatchOp struct {
+	Op    string          `json:"op"`
+	Path  string          `json:"path"`
+	Value json.RawMessage `json:"value,omitempty"`
+}
+
+// validatePatchOp checks a single patch operation. Paths must be valid JSON
+// pointers whose decoded segments contain no whitespace, since they are logged
+// and passed to kubectl as part of the patch document.
+func validatePatchOp(op jsonPatchOp) error {
+	switch op.Op {
+	case "add", "replace", "remove":
+	default:
+		return fmt.Errorf("op must be add, replace or remove")
+	}
+	if op.Path == "" || !strings.HasPrefix(op.Path, "/") {
+		return fmt.Errorf("path must be a JSON pointer starting with /")
+	}
+	for _, seg := range strings.Split(op.Path, "/")[1:] {
+		decoded := strings.ReplaceAll(strings.ReplaceAll(seg, "~1", "/"), "~0", "~")
+		if decoded == "" {
+			return fmt.Errorf("path %q has an empty segment", op.Path)
+		}
+		if strings.ContainsFunc(decoded, func(r rune) bool { return r == ' ' || unicode.IsControl(r) }) {
+			return fmt.Errorf("path %q contains whitespace or control characters", op.Path)
+		}
+	}
+	if op.Op != "remove" && len(op.Value) == 0 {
+		return fmt.Errorf("op %q requires a value", op.Op)
+	}
+	return nil
+}
+
+// patchResource applies an RFC 6902 JSON Patch to a single resource via kubectl
+func patchResource(c *gin.Context) {
+	ctxName := c.Query("context")
+	if strings.TrimSpace(ctxName) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "context is required"})
+		return
+	}
+	kind := strings.ToLower(strings.TrimSpace(c.Query("kind")))
+	name := strings.TrimSpace(c.Query("name"))
+	namespace := strings.TrimSpace(c.Query("namespace"))
+
+	clusterScoped, _, err := resolveKind(ctxName, kind)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !validResourceName(name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource name"})
+		return
+	}
+
+	var req struct {
+		Patch []jsonPatchOp `json:"patch"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body: " + err.Error()})
+		return
+	}
+	if len(req.Patch) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "patch is empty"})
+		return
+	}
+	if len(req.Patch) > maxPatchOps {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("too many patch ops: %d (max %d)", len(req.Patch), maxPatchOps)})
+		return
+	}
+	for i, op := range req.Patch {
+		if err := validatePatchOp(op); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("patch op %d: %s", i, err)})
+			return
+		}
+	}
+
+	patchBytes, err := json.Marshal(req.Patch)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to encode patch: " + err.Error()})
+		return
+	}
+
+	args := []string{"--context", ctxName, "patch", kind, name, "--type=json", "-p", string(patchBytes)}
+	if namespace != "" && !clusterScoped {
+		args = append(args, "--namespace="+namespace)
+	}
+
+	cmd := exec.Command("kubectl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": string(output)})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"output": string(output)})
+}
+
+// runKubectl executes kubectl with a context and returns stdout on success
+func runKubectl(ctxName string, args ...string) ([]byte, error) {
+	cmd := exec.Command("kubectl", append([]string{"--context", ctxName}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("kubectl %s: %s: %s", strings.Join(args, " "), err.Error(), strings.TrimSpace(string(output)))
+	}
+	return output, nil
+}
+
+// scalableBaseKinds maps workload kinds exposing spec.replicas to their
+// API Kind name (used to match HPA scaleTargetRef)
+var scalableBaseKinds = map[string]string{
+	"deployments":  "Deployment",
+	"statefulsets": "StatefulSet",
+	"replicasets":  "ReplicaSet",
+}
+
+// scalableTargetKind returns the workload Kind targeted by HPAs for a kind identifier
+func scalableTargetKind(kind string) (string, bool) {
+	base := kind
+	if i := strings.Index(base, "."); i >= 0 {
+		base = base[:i]
+	}
+	target, ok := scalableBaseKinds[base]
+	return target, ok
+}
+
+// getScaleInfo returns replica status and any HPAs targeting a scalable workload
+func getScaleInfo(c *gin.Context) {
+	ctxName := c.Query("context")
+	kind := strings.ToLower(strings.TrimSpace(c.Query("kind")))
+	name := strings.TrimSpace(c.Query("name"))
+	namespace := strings.TrimSpace(c.Query("namespace"))
+
+	targetKind, ok := scalableTargetKind(kind)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("kind %q is not scalable", kind)})
+		return
+	}
+	if !validResourceName(name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource name"})
+		return
+	}
+	if namespace == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "namespace is required for scale info"})
+		return
+	}
+
+	var workload struct {
+		Spec struct {
+			Replicas *int32 `json:"replicas"`
+		} `json:"spec"`
+		Status struct {
+			Replicas      int32 `json:"replicas"`
+			ReadyReplicas int32 `json:"readyReplicas"`
+		} `json:"status"`
+	}
+	out, err := runKubectl(ctxName, "get", kind, name, "-o", "json", "--namespace="+namespace)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": ""})
+		return
+	}
+	if err := json.Unmarshal(out, &workload); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse kubectl output: " + err.Error()})
+		return
+	}
+
+	type hpaDTO struct {
+		Name            string `json:"name"`
+		MinReplicas     *int32 `json:"minReplicas"`
+		MaxReplicas     int32  `json:"maxReplicas"`
+		CurrentReplicas int32  `json:"currentReplicas"`
+		TargetLabel     string `json:"targetLabel"`
+	}
+	hpas := make([]hpaDTO, 0)
+	hpaOut, herr := runKubectl(ctxName, "get", "horizontalpodautoscalers", "-o", "json", "--namespace="+namespace)
+	if herr == nil {
+		var list struct {
+			Items []struct {
+				Metadata struct {
+					Name string `json:"name"`
+				} `json:"metadata"`
+				Spec struct {
+					MinReplicas    *int32 `json:"minReplicas"`
+					MaxReplicas    int32  `json:"maxReplicas"`
+					ScaleTargetRef struct {
+						Kind string `json:"kind"`
+						Name string `json:"name"`
+					} `json:"scaleTargetRef"`
+					Metrics []struct {
+						Type     string `json:"type"`
+						Resource struct {
+							Target struct {
+								Type               string `json:"type"`
+								AverageUtilization *int32 `json:"averageUtilization"`
+							} `json:"target"`
+						} `json:"resource"`
+					} `json:"metrics"`
+				} `json:"spec"`
+				Status struct {
+					CurrentReplicas int32 `json:"currentReplicas"`
+				} `json:"status"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(hpaOut, &list); err == nil {
+			for _, h := range list.Items {
+				ref := h.Spec.ScaleTargetRef
+				if !strings.EqualFold(ref.Kind, targetKind) || ref.Name != name {
+					continue
+				}
+				targetLabel := ""
+				for _, m := range h.Spec.Metrics {
+					if m.Type == "Resource" && m.Resource.Target.Type == "Utilization" && m.Resource.Target.AverageUtilization != nil {
+						targetLabel = fmt.Sprintf("CPU %d%%", *m.Resource.Target.AverageUtilization)
+						break
+					}
+				}
+				hpas = append(hpas, hpaDTO{
+					Name:            h.Metadata.Name,
+					MinReplicas:     h.Spec.MinReplicas,
+					MaxReplicas:     h.Spec.MaxReplicas,
+					CurrentReplicas: h.Status.CurrentReplicas,
+					TargetLabel:     targetLabel,
+				})
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"kind":          kind,
+		"name":          name,
+		"replicas":      workload.Spec.Replicas,
+		"readyReplicas": workload.Status.ReadyReplicas,
+		"hpas":          hpas,
+	})
+}
+
+// nodeDrainTimeout caps how long a drain may run (evictions can be slow)
+const nodeDrainTimeout = 5 * time.Minute
+
+// drainNode drains a node via kubectl (cordons it and evicts its pods)
+func drainNode(c *gin.Context) {
+	ctxName := c.Query("context")
+	name := strings.TrimSpace(c.Query("name"))
+	if strings.TrimSpace(ctxName) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "context is required"})
+		return
+	}
+	if !validResourceName(name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid node name"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), nodeDrainTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", "--context", ctxName, "drain", name, "--ignore-daemonsets", "--delete-emptydir-data", "--force")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			status = http.StatusGatewayTimeout
+		}
+		c.JSON(status, gin.H{"error": err.Error(), "details": string(output)})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"output": string(output)})
+}
+
+// deleteResource deletes a single resource, optionally with a grace period
+func deleteResource(c *gin.Context) {
+	ctxName := c.Query("context")
+	if strings.TrimSpace(ctxName) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "context is required"})
+		return
+	}
+	kind := strings.ToLower(strings.TrimSpace(c.Query("kind")))
+	name := strings.TrimSpace(c.Query("name"))
+	namespace := strings.TrimSpace(c.Query("namespace"))
+	graceStr := strings.TrimSpace(c.Query("gracePeriod"))
+
+	clusterScoped, _, err := resolveKind(ctxName, kind)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !validResourceName(name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource name"})
+		return
+	}
+
+	args := []string{"--context", ctxName, "delete", kind, name}
+	if namespace != "" && !clusterScoped {
+		args = append(args, "--namespace="+namespace)
+	}
+	if graceStr != "" {
+		grace, gerr := strconv.Atoi(graceStr)
+		if gerr != nil || grace < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid gracePeriod: must be a non-negative integer"})
+			return
+		}
+		if grace == 0 {
+			// kubectl requires --force alongside --grace-period=0
+			args = append(args, "--force", "--grace-period=0")
+		} else {
+			args = append(args, fmt.Sprintf("--grace-period=%d", grace))
+		}
+	}
+
+	cmd := exec.Command("kubectl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "details": string(output)})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"output": string(output)})
 }

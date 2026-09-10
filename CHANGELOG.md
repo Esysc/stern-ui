@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Dynamic resource browsing: the resource-kind selector is now built from live API discovery (`kubectl api-resources`), so every listable resource type — including CRDs — is browsable, not just a fixed whitelist
+- New `GET /api/clusters/resource-kinds` endpoint returning discovered resource types per context (cached for 5 minutes)
+- Cluster-scoped detection for resource kinds now comes from discovery instead of a hardcoded list
+- Dynamic edit form: the resource detail modal now has a Form tab that renders the resource as editable fields (text/number/checkbox inputs, editable string lists, collapsible sections for nested objects); read-only paths (`status`, `managedFields`, `uid`, kubectl-managed annotations, …) are hidden
+- New `POST /api/clusters/resource-patch` endpoint applying an RFC 6902 JSON Patch via `kubectl patch --type=json`, with strict server-side validation of ops, paths and values; saving from the form only sends fields the user actually changed
+- Workload quick actions in the resource form: one-click replica scaling (−/+) for Deployments, StatefulSets and ReplicaSets, an exact replica-count setter, and a restart-rollout action that stamps the `kubectl.kubernetes.io/restartedAt` annotation on the pod template; actions apply immediately and refresh the form
+- HPA awareness: for scalable workloads the form fetches live replica status (`GET /api/clusters/scale-info`) and shows ready counts; when an HPA manages the workload the stepper is replaced by the HPA summary (min/max/current/target)
+- Node operations: cordon/uncordon via `spec.unschedulable` patch and node drain (`POST /api/clusters/node-drain`, 5-minute timeout, daemonset pods ignored) from the node form
+- Resource deletion from the form with a two-step confirmation and graceful/forced (`gracePeriod=0`, `--force`) termination via `POST /api/clusters/resource-delete`; the danger zone is hidden for cluster-wide infrastructure kinds (nodes, namespaces, CRD definitions, PVs/storage classes, webhook configurations, cluster RBAC, …)
+
+### Changed
+
+- `/api/clusters/resources` and `/api/clusters/resource-detail` accept any discovered kind (group-qualified identifiers like `deployments.apps` supported); the static whitelist remains as a fallback when API discovery is unavailable
+
+### Fixed
+
+- Resource-kind discovery parsed `kubectl api-resources -o json` with the wrong top-level key (`items` instead of `resources`), which made every kind lookup return 400 with a real cluster; malformed or empty discovery output is now an error instead of being cached
+
 ## [0.7.0] - 2026-09-09
 
 ### Added

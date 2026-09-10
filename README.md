@@ -16,6 +16,9 @@ A modern web interface for [stern](https://github.com/stern/stern), the multi-po
 - **Cluster Events** - Browse cluster events with namespace filtering and per-event details
 - **Cluster Health** - Node readiness and pod issue summary
 - **Resource Browser** - Browse configmaps, secrets, RBAC roles/bindings, and workloads, with full YAML detail on click
+- **Dynamic Resource Discovery** - The resource browser discovers every listable resource type from the cluster's API, including CRDs
+- **Edit Resources via Form** - Any resource can be edited through a form generated dynamically from the resource object; saves send a diff-based JSON Patch so only changed fields are applied
+- **Workload Quick Actions** - Scale Deployments/StatefulSets/ReplicaSets up or down with one click (or set an exact replica count), see whether an HPA is managing the workload, restart rollouts, cordon/uncordon/drain nodes, and delete any resource with graceful or forced termination — all from the resource form
 - **Apply Manifests** - Apply or delete a YAML manifest directly from the UI
 - **Persistent Settings** - Per-stream configuration saved to localStorage
 - **Dark Theme** - Easy on the eyes for extended log watching sessions
@@ -243,10 +246,15 @@ graph TB
 | `/api/contexts` | GET | List available kubectl contexts |
 | `/api/nodes` | GET | List cluster nodes (supports `?context=`) |
 | `/api/pod-metadata` | GET | Pod metadata (supports `?context=`) |
+| `/api/clusters/resource-kinds` | GET | Discover browsable resource types incl. CRDs (`?context=`) |
 | `/api/clusters/events` | GET | List cluster events (`?context=`, `?namespace=`) |
 | `/api/clusters/health` | GET | Node status and pod issues (`?context=`, `?namespace=`) |
-| `/api/clusters/resources` | GET | List a resource kind (`?context=`, `?kind=`, `?namespace=`) |
-| `/api/clusters/resource-detail` | GET | Full YAML of a single resource (`?context=`, `?kind=`, `?name=`, `?namespace=`) |
+| `/api/clusters/resources` | GET | List any discovered resource kind (`?context=`, `?kind=`, `?namespace=`) |
+| `/api/clusters/resource-detail` | GET | Full YAML + parsed object of a single resource (`?context=`, `?kind=`, `?name=`, `?namespace=`) |
+| `/api/clusters/resource-patch` | POST | Apply an RFC 6902 JSON Patch to a resource (`?context=`, `?kind=`, `?name=`, `?namespace=`) |
+| `/api/clusters/resource-delete` | POST | Delete a resource (`?context=`, `?kind=`, `?name=`, `?namespace=`, optional `?gracePeriod=`) |
+| `/api/clusters/scale-info` | GET | Replica status + HPAs targeting a workload (`?context=`, `?kind=`, `?name=`, `?namespace=`) |
+| `/api/clusters/node-drain` | POST | Drain a node (`?context=`, `?name=`) |
 | `/api/clusters/apply` | POST | Apply or delete a YAML manifest (`?context=`) |
 
 ## Project Structure

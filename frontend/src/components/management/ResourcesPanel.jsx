@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { apiFetch } from '../../utils/api';
+import { cachedFetch } from '../../utils/cache';
 import { AutocompleteField } from '../common/AutocompleteField';
 import { SelectField } from '../common/SelectField';
+import { ResourceEditForm } from './ResourceEditForm';
 const REFRESH_MS = 30000;
+const KINDS_CACHE_TTL = 300000;
 
+// Fallback kinds used when API discovery is unavailable
 const KIND_OPTIONS = [
   { value: 'configmaps', label: 'ConfigMaps' },
   { value: 'secrets', label: 'Secrets' },
@@ -22,6 +26,24 @@ const KIND_OPTIONS = [
 ];
 
 const CLUSTER_SCOPED = new Set(['clusterroles', 'clusterrolebindings', 'storageclasses', 'nodes']);
+
+// Normalize a discovered API resource into a selector option + scope flag.
+// Group-qualified identifiers (name.group) disambiguate same-named resources.
+function discoveredKindsToOptions(kinds) {
+  if (!Array.isArray(kinds)) return null;
+  const options = [];
+  const scope = new Map();
+  for (const it of kinds) {
+    if (!it || typeof it !== 'object' || typeof it.name !== 'string') continue;
+    const value = it.group ? `${it.name}.${it.group}` : it.name;
+    if (scope.has(value)) continue;
+    scope.set(value, it.namespaced !== false);
+    const groupLabel = it.group ? ` · ${it.group}/${it.version || ''}` : '';
+    options.push({ value, label: `${it.kind || value}${groupLabel}` });
+  }
+  if (options.length === 0) return null;
+  return { options, scope };
+}
 
 function ageLabel(created) {
   if (!created) return '';
@@ -41,30 +63,48 @@ function ageLabel(created) {
  */
 export function ResourcesPanel({ context }) {
   const [kind, setKind] = useState('configmaps');
+  const [kindOptions, setKindOptions] = useState(KIND_OPTIONS);
+  const [scope, setScope] = useState(null); // Map value -> namespaced (from discovery)
   const [namespace, setNamespace] = useState('');
   const [namespaces, setNamespaces] = useState([]);
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [detailTab, setDetailTab] = useState('yaml');
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
 
-  const openDetail = useCallback(async (name, namespace) => {
-    setDetail({ kind, name, namespace });
+  // A kind is cluster-scoped when live discovery says so, falling back to the
+  // static set (which matches the backend's own fallback list)
+  const isClusterScoped = useCallback(
+    (k) => {
+      if (scope?.has(k)) return !scope.get(k);
+      const base = k.split('.')[0];
+      return CLUSTER_SCOPED.has(k) || CLUSTER_SCOPED.has(base);
+    },
+    [scope]
+  );
+
+  const fetchDetail = useCallback(async (name, namespace, silent) => {
     setDetailError('');
-    setDetailLoading(true);
+    if (!silent) setDetailLoading(true);
     try {
       const params = new URLSearchParams({ context, kind, name });
-      if (namespace && !CLUSTER_SCOPED.has(kind)) params.set('namespace', namespace);
+      if (namespace && !isClusterScoped(kind)) params.set('namespace', namespace);
       const data = await apiFetch(`/api/clusters/resource-detail?${params}`);
-      setDetail({ kind, name, namespace, yaml: data.yaml });
+      setDetail({ kind, name, namespace, yaml: data.yaml, object: data.object });
     } catch (e) {
       setDetailError(e.message);
     } finally {
-      setDetailLoading(false);
+      if (!silent) setDetailLoading(false);
     }
-  }, [context, kind]);
+  }, [context, kind, isClusterScoped]);
+
+  const openDetail = useCallback((name, namespace) => {
+    setDetail({ kind, name, namespace });
+    fetchDetail(name, namespace, false);
+  }, [kind, fetchDetail]);
 
   useEffect(() => {
     const handleKey = (e) => {
@@ -73,6 +113,19 @@ export function ResourcesPanel({ context }) {
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
+
+  useEffect(() => {
+    if (!context) return;
+    cachedFetch(`/api/clusters/resource-kinds?context=${encodeURIComponent(context)}`, { ttl: KINDS_CACHE_TTL })
+      .then((kinds) => {
+        const mapped = discoveredKindsToOptions(kinds);
+        if (mapped) {
+          setKindOptions(mapped.options);
+          setScope(mapped.scope);
+        }
+      })
+      .catch(() => {}); // keep static fallback options on failure
+  }, [context]);
 
   useEffect(() => {
     if (!context) return;
@@ -86,7 +139,7 @@ export function ResourcesPanel({ context }) {
     setLoading(true);
     try {
       const params = new URLSearchParams({ context, kind });
-      if (namespace && !CLUSTER_SCOPED.has(kind)) params.set('namespace', namespace);
+      if (namespace && !isClusterScoped(kind)) params.set('namespace', namespace);
       const data = await apiFetch(`/api/clusters/resources?${params}`);
       setItems(data.items || []);
       setError('');
@@ -95,7 +148,7 @@ export function ResourcesPanel({ context }) {
     } finally {
       setLoading(false);
     }
-  }, [context, kind, namespace]);
+  }, [context, kind, namespace, isClusterScoped]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -114,11 +167,11 @@ export function ResourcesPanel({ context }) {
               label="Resource kind"
               value={kind}
               onChange={setKind}
-              options={KIND_OPTIONS}
+              options={kindOptions}
               idPrefix="resources"
             />
           </div>
-          {!CLUSTER_SCOPED.has(kind) && (
+          {!isClusterScoped(kind) && (
             <div className="w-48">
               <AutocompleteField
                 label="Namespace"
@@ -179,19 +232,54 @@ export function ResourcesPanel({ context }) {
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
               <h3 className="font-bold text-cyan-300 break-all">{detail.kind}/{detail.name}</h3>
-              <button
-                onClick={() => setDetail(null)}
-                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                aria-label="Close resource detail"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded overflow-hidden border border-gray-700">
+                  <button
+                    onClick={() => setDetailTab('yaml')}
+                    className={`px-3 py-1 text-sm ${detailTab === 'yaml' ? 'bg-gray-700 text-white' : 'bg-transparent text-gray-400 hover:text-gray-200'}`}
+                    aria-label="Show YAML view"
+                  >
+                    YAML
+                  </button>
+                  <button
+                    onClick={() => setDetailTab('form')}
+                    className={`px-3 py-1 text-sm ${detailTab === 'form' ? 'bg-gray-700 text-white' : 'bg-transparent text-gray-400 hover:text-gray-200'}`}
+                    aria-label="Show form view"
+                  >
+                    Form
+                  </button>
+                </div>
+                <button
+                  onClick={() => setDetail(null)}
+                  className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                  aria-label="Close resource detail"
+                >
+                  Close
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-auto p-4">
               {detailError && <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded text-red-300 text-sm">{detailError}</div>}
               {detailLoading && <div className="text-gray-500 text-sm">Loading…</div>}
-              {detail.yaml && (
+              {detailTab === 'yaml' && detail.yaml && (
                 <pre className="text-xs text-gray-300 whitespace-pre-wrap break-all font-mono">{detail.yaml}</pre>
+              )}
+              {detailTab === 'form' && detail.object && (
+                <ResourceEditForm
+                  context={context}
+                  kind={detail.kind}
+                  name={detail.name}
+                  namespace={detail.namespace}
+                  object={detail.object}
+                  onUpdated={() => {
+                    fetchDetail(detail.name, detail.namespace, true);
+                    load();
+                  }}
+                  onDeleted={() => {
+                    setDetail(null);
+                    load();
+                  }}
+                />
               )}
             </div>
           </div>
