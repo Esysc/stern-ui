@@ -160,4 +160,19 @@ describe('LogViewer', () => {
       else delete proto.offsetHeight;
     }
   });
+
+  it('keeps rendered rows when a full log buffer rolls forward', () => {
+    const logs = Array.from({ length: 5_000 }, (_, id) => ({
+      id,
+      pod: 'web-1',
+      message: `line ${id}`
+    }));
+
+    const { container, rerender } = render(<LogViewer logs={logs} />);
+    rerender(<LogViewer logs={[...logs.slice(1), { id: 5_000, pod: 'web-1', message: 'latest line' }]} />);
+
+    const rendered = container.querySelectorAll('.whitespace-pre-wrap');
+    expect(rendered.length).toBeGreaterThan(0);
+    expect(Array.from(rendered).some((row) => row.textContent.includes('line 1'))).toBe(true);
+  });
 });

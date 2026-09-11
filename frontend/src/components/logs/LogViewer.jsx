@@ -49,24 +49,26 @@ export function LogViewer({
     };
   }, [autoScroll]);
 
-  // Reset measurements when the underlying log set changes (e.g. filter
-  // changes or a fresh stream) so stale heights never apply to new content.
-  // Adjusting state during render is the React-sanctioned pattern for
-  // deriving state from a prop change.
-  const [prevFirstId, setPrevFirstId] = useState(null);
-  const firstId = logs[0]?.id;
-  if (firstId !== prevFirstId) {
-    setPrevFirstId(firstId);
+  // A fresh stream clears the visible log list before new entries arrive.
+  // Keep measurements while the bounded buffer rolls forward: its first ID
+  // changes for every appended log at capacity, but retained entries remain
+  // valid and clearing the whole map causes virtualized rows to jump away.
+  const [hadLogs, setHadLogs] = useState(false);
+  if (logs.length === 0 && hadLogs) {
+    setHadLogs(false);
     setRowHeights(new Map());
+  } else if (logs.length > 0 && !hadLogs) {
+    setHadLogs(true);
   }
 
   // Jump to the tail whenever new logs arrive while pinned to the bottom.
-  const prevLengthRef = useRef(0);
+  const prevLastIdRef = useRef(null);
   useEffect(() => {
     const el = containerRef.current;
-    const prevLength = prevLengthRef.current;
-    prevLengthRef.current = logs.length;
-    if (prevLength >= logs.length) return;
+    const lastId = logs.at(-1)?.id;
+    const hasNewTail = lastId !== prevLastIdRef.current;
+    prevLastIdRef.current = lastId;
+    if (!hasNewTail) return;
     if (!el || logs.length === 0 || !followedRef.current) return;
     el.scrollTop = el.scrollHeight;
     followedRef.current = true;
